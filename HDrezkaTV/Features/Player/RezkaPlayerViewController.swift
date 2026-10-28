@@ -33,6 +33,10 @@ final class RezkaPlayerViewController: AVPlayerViewController {
     private var quality: StreamQuality?
     private var subtitle: SubtitleTrack?
     private var cues: [SubtitleCue] = []
+    /// Kept for the whole player session, across quality switches and episodes.
+    private var speed: Float = 1
+
+    private static let speedOptions: [Float] = [1, 1.25, 1.5, 1.75, 2]
 
     private let subtitleLabel = UILabel()
     private let spinner = UIActivityIndicatorView(style: .large)
@@ -63,6 +67,8 @@ final class RezkaPlayerViewController: AVPlayerViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         player = AVPlayer()
+        // The "Скорость" menu replaces the system speed control so all options sit side by side.
+        speeds = []
         setUpOverlay()
         timeObserver = player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.tick(time.seconds) }
@@ -195,6 +201,13 @@ final class RezkaPlayerViewController: AVPlayerViewController {
             }
         }
 
+        let speeds = Self.speedOptions.map { rate in
+            UIAction(title: Self.speedLabel(rate), state: rate == speed ? .on : .off) { [weak self] _ in
+                self?.setSpeed(rate)
+            }
+        }
+        items.append(UIMenu(title: "Скорость", image: UIImage(systemName: "gauge.with.dots.needle.67percent"), options: .singleSelection, children: speeds))
+
         if nextEpisode() != nil {
             items.append(UIAction(title: "Следующая серия", image: UIImage(systemName: "forward.end")) { [weak self] _ in
                 self?.playNext()
@@ -209,6 +222,18 @@ final class RezkaPlayerViewController: AVPlayerViewController {
         QualityPreference.current = option.label
         play(option, at: currentPosition)
         rebuildMenus()
+    }
+
+    /// `defaultRate` is what `play()` resumes at, so the speed survives pausing and the next episode.
+    private func setSpeed(_ rate: Float) {
+        speed = rate
+        player?.defaultRate = rate
+        if let player, player.rate != 0 { player.rate = rate }
+        rebuildMenus()
+    }
+
+    private static func speedLabel(_ rate: Float) -> String {
+        rate == 1 ? "Обычная" : rate.formatted(.number.locale(Locale(identifier: "ru_RU"))) + "×"
     }
 
     // MARK: Subtitles
