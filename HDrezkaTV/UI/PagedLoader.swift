@@ -37,6 +37,11 @@ final class PagedLoader {
         isLoading = false
     }
 
+    /// Drops an item removed on the site without reloading, so focus stays where it was.
+    func remove(id: String) {
+        items.removeAll { $0.id == id }
+    }
+
     func loadMore() async {
         guard let fetch, hasMore, !isLoading else { return }
         let current = generation

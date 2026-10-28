@@ -119,6 +119,7 @@ enum RezkaParser {
             translators = [single]
         }
 
+        let bookmarks = try bookmarkFolders(onDetails: doc)
         let posterHref = try doc.select(".b-sidecover a").first()?.attr("href")
         let posterSrc = try doc.select(".b-sidecover img").first()?.attr("src")
 
@@ -135,8 +136,29 @@ enum RezkaParser {
             translators: translators,
             activeTranslatorId: activeTranslatorId,
             seasons: isSeries ? try seasons(in: doc) : [],
-            related: try doc.select(".b-sidelist").first().map { try items(in: $0, base: base) } ?? []
+            related: try doc.select(".b-sidelist").first().map { try items(in: $0, base: base) } ?? [],
+            bookmarkFolders: bookmarks?.folders,
+            bookmarkedIn: bookmarks?.checked ?? []
         )
+    }
+
+    /// The account's bookmark folders from a details page and those holding the title;
+    /// nil when the page has no bookmark controls (logged out).
+    private static func bookmarkFolders(onDetails doc: Document) throws -> (folders: [BookmarkFolder], checked: Set<String>)? {
+        guard try doc.select("#user-favorites-holder").first() != nil else { return nil }
+        var folders: [BookmarkFolder] = []
+        var checked = Set<String>()
+        for row in try doc.select("#user-favorites-list .hd-label-row").array() {
+            guard let input = try row.select("input").first() else { continue }
+            let id = try input.attr("value")
+            guard !id.isEmpty else { continue }
+            let label = try row.select("label").first()
+            let name = try label?.ownText().nonEmpty ?? label?.text() ?? id
+            let count = try Int(row.select("small b").first()?.text() ?? "")
+            folders.append(BookmarkFolder(id: id, name: name, count: count))
+            if input.hasAttr("checked") { checked.insert(id) }
+        }
+        return (folders, checked)
     }
 
     static func seasons(in root: Element) throws -> [Season] {

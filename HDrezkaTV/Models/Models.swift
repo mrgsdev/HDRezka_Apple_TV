@@ -84,6 +84,10 @@ struct MediaDetails {
     /// Seasons embedded in the page for the active translator.
     let seasons: [Season]
     let related: [MediaItem]
+    /// The account's bookmark folders; nil when the page offers no bookmarks (logged out).
+    let bookmarkFolders: [BookmarkFolder]?
+    /// Ids of the folders that hold this title.
+    let bookmarkedIn: Set<String>
 
     func info(_ title: String) -> String? {
         info.first { $0.title.hasPrefix(title) }?.value

@@ -17,6 +17,10 @@ final class DetailsModel {
     var selectedSeasonId: String?
     private(set) var isLoadingEpisodes = false
     private(set) var episodesError: Error?
+    /// The account's bookmark folders; nil hides the bookmark button (logged out).
+    private(set) var bookmarkFolders: [BookmarkFolder]?
+    private(set) var bookmarkedIn: Set<String> = []
+    var bookmarkError: String?
 
     init(item: MediaItem) {
         self.item = item
@@ -46,6 +50,8 @@ final class DetailsModel {
                 ?? pool.first { $0.id == details.activeTranslatorId }
                 ?? pool.first
             translator = chosen
+            bookmarkFolders = details.bookmarkFolders
+            bookmarkedIn = details.bookmarkedIn
             state = .loaded(details)
 
             guard details.isSeries, let chosen else { return }
@@ -84,6 +90,44 @@ final class DetailsModel {
         self.seasons = seasons
         let lastSeason = WatchProgressStore.shared.last(postId: postId)?.seasonId
         selectedSeasonId = seasons.first { $0.id == lastSeason }?.id ?? seasons.first?.id
+    }
+
+    // MARK: Bookmarks
+
+    func toggleBookmark(in folder: BookmarkFolder) async {
+        guard let details else { return }
+        do {
+            if bookmarkedIn.contains(folder.id) {
+                try await RezkaClient.shared.removeBookmark(postId: details.postId, folder: folder.id)
+                bookmarkedIn.remove(folder.id)
+            } else {
+                try await RezkaClient.shared.addBookmark(postId: details.postId, folder: folder.id)
+                bookmarkedIn.insert(folder.id)
+            }
+            NotificationCenter.default.post(name: .bookmarksChanged, object: nil)
+        } catch {
+            reportBookmark(error)
+        }
+    }
+
+    /// Creates a folder and puts the title in it, like the site's "new folder" on a details page.
+    func createBookmarkFolder(named name: String) async {
+        guard let details, let name = name.nonEmpty else { return }
+        do {
+            let folder = try await RezkaClient.shared.createBookmarkFolder(name: name)
+            bookmarkFolders = [folder] + (bookmarkFolders ?? [])
+            NotificationCenter.default.post(name: .bookmarksChanged, object: nil)
+            try await RezkaClient.shared.addBookmark(postId: details.postId, folder: folder.id)
+            bookmarkedIn.insert(folder.id)
+        } catch {
+            reportBookmark(error)
+        }
+    }
+
+    private func reportBookmark(_ error: Error) {
+        guard !error.isCancellation else { return }
+        bookmarkError = error.localizedDescription
+        AuthSession.shared.handle(error)
     }
 
     // MARK: Playback

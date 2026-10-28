@@ -140,6 +140,45 @@ final class RezkaClient {
         return try RezkaParser.page(in: doc, base: baseURL)
     }
 
+    // MARK: Bookmark editing
+
+    func createBookmarkFolder(name: String) async throws -> BookmarkFolder {
+        let json = try await favorites(["name": name, "action": "add_cat"], fallback: "Не удалось создать папку.")
+        let id = (json["id"] as? Int).map(String.init) ?? (json["id"] as? String) ?? ""
+        guard !id.isEmpty, id != "0" else { throw RezkaError.parsing("id новой папки") }
+        return BookmarkFolder(id: id, name: (json["name"] as? String)?.nonEmpty ?? name, count: 0)
+    }
+
+    func renameBookmarkFolder(id: String, name: String) async throws {
+        try await favorites(["cat_id": id, "name": name, "action": "change_cat_name"], fallback: "Не удалось переименовать папку.")
+    }
+
+    /// Deletes the folder together with the bookmarks in it.
+    func deleteBookmarkFolder(id: String) async throws {
+        try await favorites(["cat_id": id, "action": "remove_cat"], fallback: "Не удалось удалить папку.")
+    }
+
+    /// The site toggles membership with this action, so call it only for a title not in the folder.
+    func addBookmark(postId: String, folder: String) async throws {
+        try await favorites(["post_id": postId, "cat_id": folder, "action": "add_post"], fallback: "Не удалось добавить в закладки.")
+    }
+
+    func removeBookmark(postId: String, folder: String) async throws {
+        try await favorites(["items[]": postId, "cat_id": folder, "action": "remove_items"], fallback: "Не удалось убрать из закладок.")
+    }
+
+    func moveBookmark(postId: String, from: String, to: String) async throws {
+        try await favorites(["items[]": postId, "from_cat_id": from, "to_cat_id": to, "action": "change_items_cat"],
+                            fallback: "Не удалось перенести закладку.")
+    }
+
+    @discardableResult
+    private func favorites(_ form: [String: String], fallback: String) async throws -> [String: Any] {
+        let json = try await postJSON("ajax/favorites/", form: form, timestamped: false)
+        guard json["success"] as? Bool == true else { throw siteError(json, fallback: fallback) }
+        return json
+    }
+
     // MARK: Details & streams
 
     func details(path: String) async throws -> MediaDetails {
@@ -333,14 +372,16 @@ final class RezkaClient {
     private static func formEncode(_ form: [String: String]) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._*")
-        return form.map { key, value in
-            let encodedValue = value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
-            return "\(key)=\(encodedValue)"
-        }.joined(separator: "&")
+        func encode(_ text: String) -> String {
+            text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text
+        }
+        return form.map { key, value in "\(encode(key))=\(encode(value))" }.joined(separator: "&")
     }
 }
 
 extension Notification.Name {
     /// Posted when playback progress may have changed the site's "continue watching" list.
     static let watchHistoryChanged = Notification.Name("watchHistoryChanged")
+    /// Posted when bookmarks were changed outside the bookmarks screen, e.g. on a details page.
+    static let bookmarksChanged = Notification.Name("bookmarksChanged")
 }

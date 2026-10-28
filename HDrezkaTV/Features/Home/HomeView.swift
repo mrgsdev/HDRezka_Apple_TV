@@ -135,7 +135,9 @@ struct HomeView: View {
                 ForEach(model.shelves) { shelf in
                     if shelf.isContinue {
                         MediaRow(title: shelf.title, items: shelf.items) { item in
-                            Task { await model.removeFromContinue(item) }
+                            [CardAction(title: "Убрать из «Продолжить просмотр»", systemImage: "trash", isDestructive: true) {
+                                Task { await model.removeFromContinue(item) }
+                            }]
                         }
                     } else {
                         MediaRow(title: shelf.title, items: shelf.items)

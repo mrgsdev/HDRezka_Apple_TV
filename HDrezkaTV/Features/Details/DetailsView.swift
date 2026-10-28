@@ -8,6 +8,8 @@ struct DetailsView: View {
     @Environment(AuthSession.self) private var auth
     @FocusState private var isPlayFocused: Bool
     @State private var didFocusPlay = false
+    @State private var isCreatingFolder = false
+    @State private var newFolderName = ""
 
     init(item: MediaItem) {
         self.item = item
@@ -39,6 +41,22 @@ struct DetailsView: View {
                 try? await Task.sleep(for: .milliseconds(100))
                 isPlayFocused = true
             }
+        }
+        .alert("Новая папка закладок", isPresented: $isCreatingFolder) {
+            TextField("Название", text: $newFolderName)
+            Button("Создать и добавить") {
+                let name = newFolderName
+                Task { await model.createBookmarkFolder(named: name) }
+            }
+            Button("Отмена", role: .cancel) {}
+        }
+        .alert("Не получилось", isPresented: Binding(
+            get: { model.bookmarkError != nil },
+            set: { if !$0 { model.bookmarkError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.bookmarkError ?? "")
         }
     }
 
@@ -203,6 +221,37 @@ struct DetailsView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
+
+            if let folders = model.bookmarkFolders {
+                bookmarkMenu(folders)
+            }
+        }
+    }
+
+    /// Folders with a checkmark where the title is; picking one adds or removes it there.
+    private func bookmarkMenu(_ folders: [BookmarkFolder]) -> some View {
+        Menu {
+            ForEach(folders) { folder in
+                Button {
+                    Task { await model.toggleBookmark(in: folder) }
+                } label: {
+                    if model.bookmarkedIn.contains(folder.id) {
+                        Label(folder.name, systemImage: "checkmark")
+                    } else {
+                        Text(folder.name)
+                    }
+                }
+            }
+            Button {
+                newFolderName = ""
+                isCreatingFolder = true
+            } label: {
+                Label("Новая папка…", systemImage: "folder.badge.plus")
+            }
+        } label: {
+            Label(model.bookmarkedIn.isEmpty ? "В закладки" : "В закладках",
+                  systemImage: model.bookmarkedIn.isEmpty ? "bookmark" : "bookmark.fill")
+                .lineLimit(1)
         }
     }
 

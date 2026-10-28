@@ -75,15 +75,25 @@ enum PosterCache {
     }
 }
 
+/// An entry of the menu a long press on a poster opens, e.g. "remove from this list".
+struct CardAction: Identifiable {
+    let title: String
+    let systemImage: String
+    var isDestructive = false
+    let perform: () -> Void
+
+    var id: String { title }
+}
+
 struct PosterCard: View {
     let item: MediaItem
     var width: CGFloat = 250
-    /// When set, a long press on the card offers to remove it from "continue watching".
-    var onRemoveFromContinue: (() -> Void)? = nil
+    /// Shown on a long press; no menu when empty.
+    var actions: [CardAction] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            removable(NavigationLink(value: item) {
+            withActions(NavigationLink(value: item) {
                 PosterImage(url: item.posterURL)
                     .frame(width: width, height: width * 1.5)
                     .overlay(alignment: .bottomLeading) {
@@ -117,15 +127,17 @@ struct PosterCard: View {
     }
 
     @ViewBuilder
-    private func removable(_ card: some View) -> some View {
-        if let onRemoveFromContinue {
+    private func withActions(_ card: some View) -> some View {
+        if actions.isEmpty {
+            card
+        } else {
             card.contextMenu {
-                Button(role: .destructive, action: onRemoveFromContinue) {
-                    Label("Убрать из «Продолжить просмотр»", systemImage: "trash")
+                ForEach(actions) { action in
+                    Button(role: action.isDestructive ? .destructive : nil, action: action.perform) {
+                        Label(action.title, systemImage: action.systemImage)
+                    }
                 }
             }
-        } else {
-            card
         }
     }
 }
@@ -134,7 +146,7 @@ struct PosterCard: View {
 struct MediaRow: View {
     let title: String
     let items: [MediaItem]
-    var onRemoveFromContinue: ((MediaItem) -> Void)? = nil
+    var actions: (MediaItem) -> [CardAction] = { _ in [] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -144,7 +156,7 @@ struct MediaRow: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 48) {
                     ForEach(items) { item in
-                        PosterCard(item: item, onRemoveFromContinue: onRemoveFromContinue.map { remove in { remove(item) } })
+                        PosterCard(item: item, actions: actions(item))
                     }
                 }
                 .padding(.horizontal, 80)
@@ -160,13 +172,15 @@ struct MediaRow: View {
 struct MediaGrid: View {
     let items: [MediaItem]
     var onReachEnd: () async -> Void = {}
+    /// After onReachEnd so a trailing closure keeps meaning onReachEnd.
+    var actions: (MediaItem) -> [CardAction] = { _ in [] }
 
     private let columns = Array(repeating: GridItem(.fixed(250), spacing: 48, alignment: .top), count: 6)
 
     var body: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 60) {
             ForEach(items) { item in
-                PosterCard(item: item)
+                PosterCard(item: item, actions: actions(item))
                     .onAppear {
                         if item.id == items.last?.id {
                             Task { await onReachEnd() }
