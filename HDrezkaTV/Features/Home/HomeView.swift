@@ -13,6 +13,7 @@ final class HomeModel {
     private(set) var shelves: [Shelf] = []
     private(set) var isLoading = false
     private(set) var error: Error?
+    var removalError: String?
     /// Bumped per load so a superseded or cancelled load never overwrites a newer result.
     private var generation = 0
 
@@ -87,6 +88,22 @@ final class HomeModel {
         setContinue(items)
     }
 
+    func removeFromContinue(_ item: MediaItem) async {
+        guard let id = item.continueId else { return }
+        do {
+            try await RezkaClient.shared.removeFromContinue(id: id)
+            let remaining = shelves.first(where: \.isContinue)?.items.filter { $0.id != item.id } ?? []
+            setContinue(remaining)
+            // Without this the details screen would still offer to resume the title.
+            if let postId = RezkaParser.idFromPath(item.path) {
+                WatchProgressStore.shared.remove(postId: postId)
+            }
+        } catch {
+            removalError = error.localizedDescription
+            AuthSession.shared.handle(error)
+        }
+    }
+
     private func setContinue(_ items: [MediaItem]) {
         shelves.removeAll(where: \.isContinue)
         if !items.isEmpty {
@@ -102,7 +119,13 @@ struct HomeView: View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 60) {
                 ForEach(model.shelves) { shelf in
-                    MediaRow(title: shelf.title, items: shelf.items)
+                    if shelf.isContinue {
+                        MediaRow(title: shelf.title, items: shelf.items) { item in
+                            Task { await model.removeFromContinue(item) }
+                        }
+                    } else {
+                        MediaRow(title: shelf.title, items: shelf.items)
+                    }
                 }
             }
             .padding(.vertical, 40)
@@ -119,6 +142,14 @@ struct HomeView: View {
         .task { await model.loadIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: .watchHistoryChanged)) { _ in
             Task { await model.refreshContinue() }
+        }
+        .alert("Не удалось убрать", isPresented: Binding(
+            get: { model.removalError != nil },
+            set: { if !$0 { model.removalError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.removalError ?? "")
         }
     }
 }

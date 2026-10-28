@@ -51,6 +51,12 @@ final class WatchProgressStore {
         }
     }
 
+    /// Forgets every saved position of a title (e.g. after removing it from "continue watching").
+    func remove(postId: String) {
+        entries = entries.filter { $0.value.postId != postId }
+        persist()
+    }
+
     func persist() {
         lastPersist = Date()
         if entries.count > Self.limit {

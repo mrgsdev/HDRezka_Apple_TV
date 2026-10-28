@@ -44,13 +44,16 @@ enum RezkaParser {
                   let path = sitePath(try link.attr("href"), base: base) else { return nil }
             let info = try row.select(".td.info").first()?.text() ?? ""
             let year = try row.select(".td.title small").first()?.text() ?? ""
+            let removeId = try row.select(".i-sprt.delete").first()?.attr("data-id").nonEmpty
+                ?? row.id().components(separatedBy: "-").last?.nonEmpty
             return MediaItem(
                 path: path,
                 title: try link.text(),
                 subtitle: info.isEmpty ? year : info,
                 posterURL: absoluteURL(try link.attr("data-cover_url"), base: base),
                 kind: .unknown,
-                badge: nil
+                badge: nil,
+                continueId: removeId
             )
         }
     }
@@ -206,7 +209,8 @@ enum RezkaParser {
         return URL(string: string, relativeTo: base)?.absoluteURL
     }
 
-    private static func idFromPath(_ path: String) -> String? {
+    /// `/films/drama/12345-name-2020.html` → `12345`, the site's post id.
+    static func idFromPath(_ path: String) -> String? {
         let last = path.split(separator: "/").last ?? ""
         let digits = last.prefix { $0.isNumber }
         return digits.isEmpty ? nil : String(digits)

@@ -30,10 +30,12 @@ struct PosterImage: View {
 struct PosterCard: View {
     let item: MediaItem
     var width: CGFloat = 250
+    /// When set, a long press on the card offers to remove it from "continue watching".
+    var onRemoveFromContinue: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            NavigationLink(value: item) {
+            removable(NavigationLink(value: item) {
                 PosterImage(url: item.posterURL)
                     .frame(width: width, height: width * 1.5)
                     .overlay(alignment: .bottomLeading) {
@@ -48,7 +50,7 @@ struct PosterCard: View {
                         }
                     }
             }
-            .buttonStyle(.card)
+            .buttonStyle(.card))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title)
@@ -65,12 +67,26 @@ struct PosterCard: View {
         }
         .frame(width: width)
     }
+
+    @ViewBuilder
+    private func removable(_ card: some View) -> some View {
+        if let onRemoveFromContinue {
+            card.contextMenu {
+                Button(role: .destructive, action: onRemoveFromContinue) {
+                    Label("Убрать из «Продолжить просмотр»", systemImage: "trash")
+                }
+            }
+        } else {
+            card
+        }
+    }
 }
 
 /// A titled horizontal shelf of posters.
 struct MediaRow: View {
     let title: String
     let items: [MediaItem]
+    var onRemoveFromContinue: ((MediaItem) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -79,7 +95,9 @@ struct MediaRow: View {
                 .padding(.horizontal, 80)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 48) {
-                    ForEach(items) { PosterCard(item: $0) }
+                    ForEach(items) { item in
+                        PosterCard(item: item, onRemoveFromContinue: onRemoveFromContinue.map { remove in { remove(item) } })
+                    }
                 }
                 .padding(.horizontal, 80)
                 .padding(.vertical, 20)

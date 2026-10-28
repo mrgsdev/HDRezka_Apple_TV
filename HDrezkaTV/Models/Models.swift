@@ -32,6 +32,8 @@ struct MediaItem: Identifiable, Hashable, Codable {
     let kind: MediaKind
     /// Short badge from the cover, e.g. "2 сезон, 8 серия".
     let badge: String?
+    /// Id of the entry in the site's "continue watching" list, used to remove it.
+    var continueId: String? = nil
 
     var id: String { path }
 }

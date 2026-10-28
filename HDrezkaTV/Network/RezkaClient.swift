@@ -192,6 +192,14 @@ final class RezkaClient {
         ])
     }
 
+    /// Removes an entry from the site's "continue watching" list.
+    func removeFromContinue(id: String) async throws {
+        let json = try await postJSON("engine/ajax/cdn_saves_remove.php", form: ["id": id], timestamped: false)
+        guard json["success"] as? Bool == true else {
+            throw siteError(json, fallback: "Не удалось убрать из «Продолжить просмотр».")
+        }
+    }
+
     func downloadText(_ url: URL) async throws -> String {
         try await string(url)
     }
