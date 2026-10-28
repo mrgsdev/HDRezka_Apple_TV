@@ -88,6 +88,8 @@ struct MediaDetails {
     let bookmarkFolders: [BookmarkFolder]?
     /// Ids of the folders that hold this title.
     let bookmarkedIn: Set<String>
+    /// "Отзывы (N)" on the page; the comments themselves load separately.
+    let commentsCount: Int
 
     func info(_ title: String) -> String? {
         info.first { $0.title.hasPrefix(title) }?.value
@@ -122,6 +124,25 @@ struct StreamInfo {
     let qualities: [StreamQuality]
     let subtitles: [SubtitleTrack]
     let defaultSubtitle: String?
+}
+
+/// A comment under a title. The site's reply tree is flattened in reading order, with `depth` for indentation.
+struct Comment: Identifiable, Hashable {
+    struct Part: Hashable {
+        let text: String
+        /// Hidden behind "спойлер" until the viewer asks to see it.
+        let isSpoiler: Bool
+    }
+
+    let id: String
+    let author: String
+    let date: String
+    let parts: [Part]
+    let likes: Int
+    /// 0 for a comment on the title, 1 and more for replies.
+    let depth: Int
+
+    var hasSpoiler: Bool { parts.contains(where: \.isSpoiler) }
 }
 
 struct BookmarkFolder: Identifiable, Hashable {

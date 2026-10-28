@@ -138,7 +138,8 @@ enum RezkaParser {
             seasons: isSeries ? try seasons(in: doc) : [],
             related: try doc.select(".b-sidelist").first().map { try items(in: $0, base: base) } ?? [],
             bookmarkFolders: bookmarks?.folders,
-            bookmarkedIn: bookmarks?.checked ?? []
+            bookmarkedIn: bookmarks?.checked ?? [],
+            commentsCount: try Int(doc.select("#comments-list-button em").first()?.text() ?? "") ?? 0
         )
     }
 
@@ -159,6 +160,88 @@ enum RezkaParser {
             if input.hasAttr("checked") { checked.insert(id) }
         }
         return (folders, checked)
+    }
+
+    // MARK: Comments
+
+    /// Comments from `ajax/get_comments/`. Tree items come in reading order, each before its replies,
+    /// so walking them in document order flattens the tree.
+    static func comments(in root: Element) throws -> [Comment] {
+        try root.select(".comments-tree-item").array().compactMap { item in
+            let id = try item.attr("data-id")
+            guard !id.isEmpty, let text = try item.select(".text").first() else { return nil }
+            let like = try item.select(".b-comment__like_it").first()
+            return Comment(
+                id: id,
+                author: try item.select(".name").first()?.text() ?? "",
+                date: try item.select(".date").first()?.text().replacingOccurrences(of: "оставлен ", with: "") ?? "",
+                parts: try commentParts(text),
+                likes: Int(try like?.attr("data-likes_num") ?? "") ?? 0,
+                depth: Int(try item.attr("data-indent")) ?? 0
+            )
+        }
+    }
+
+    /// Whether the comments page navigator links to the page after `page`.
+    static func hasPage(after page: Int, in navigator: Element) throws -> Bool {
+        let next = String(page + 1)
+        return try navigator.select("a").array().contains { link in
+            try link.text().trimmingCharacters(in: .whitespaces) == next || link.select(".b-navigation__next").first() != nil
+        }
+    }
+
+    /// Comment text with line breaks kept and `.text_spoiler` blocks marked as spoilers.
+    private static func commentParts(_ text: Element) throws -> [Comment.Part] {
+        var parts: [Comment.Part] = []
+        func append(_ string: String, spoiler: Bool) {
+            if let last = parts.last, last.isSpoiler == spoiler {
+                parts[parts.count - 1] = Comment.Part(text: last.text + string, isSpoiler: spoiler)
+            } else {
+                parts.append(Comment.Part(text: string, isSpoiler: spoiler))
+            }
+        }
+        func walk(_ node: Node, spoiler: Bool) throws {
+            if let textNode = node as? TextNode {
+                append(textNode.getWholeText(), spoiler: spoiler)
+            } else if let element = node as? Element {
+                // The "спойлер" caption above a hidden block; the app draws its own.
+                guard !element.hasClass("title_spoiler") else { return }
+                if element.tagName() == "br" {
+                    append("\n", spoiler: spoiler)
+                    return
+                }
+                let isBlock = ["div", "p"].contains(element.tagName())
+                if isBlock { append("\n", spoiler: spoiler) }
+                for child in element.getChildNodes() {
+                    try walk(child, spoiler: spoiler || element.hasClass("text_spoiler"))
+                }
+                if isBlock { append("\n", spoiler: spoiler) }
+            }
+        }
+        for child in text.getChildNodes() {
+            try walk(child, spoiler: false)
+        }
+        let cleaned = parts.map { Comment.Part(text: tidy($0.text), isSpoiler: $0.isSpoiler) }
+        return trimEnds(cleaned.filter { !$0.text.isEmpty })
+    }
+
+    /// Collapses the page's indentation: spaces within lines, blank runs to one empty line.
+    private static func tidy(_ text: String) -> String {
+        text.replacingOccurrences(of: "[ \t\u{00A0}]+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: " *\n *", with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+    }
+
+    private static func trimEnds(_ parts: [Comment.Part]) -> [Comment.Part] {
+        var parts = parts
+        if let first = parts.first {
+            parts[0] = Comment.Part(text: String(first.text.drop { $0.isWhitespace }), isSpoiler: first.isSpoiler)
+        }
+        if let last = parts.last {
+            let trimmed = String(last.text.reversed().drop { $0.isWhitespace }.reversed())
+            parts[parts.count - 1] = Comment.Part(text: trimmed, isSpoiler: last.isSpoiler)
+        }
+        return parts.filter { !$0.text.isEmpty }
     }
 
     static func seasons(in root: Element) throws -> [Season] {

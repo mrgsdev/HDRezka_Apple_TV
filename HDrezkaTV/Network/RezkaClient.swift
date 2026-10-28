@@ -186,6 +186,29 @@ final class RezkaClient {
         return try RezkaParser.details(in: doc, path: path, base: baseURL)
     }
 
+    /// One page of comments under a title, newest threads first, as the site shows them.
+    func comments(postId: String, page: Int = 1) async throws -> Page<Comment> {
+        var request = URLRequest(url: url("ajax/get_comments/", query: [
+            URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970 * 1000))),
+            URLQueryItem(name: "news_id", value: postId),
+            URLQueryItem(name: "cstart", value: String(page)),
+            URLQueryItem(name: "type", value: "0"),
+            URLQueryItem(name: "comment_id", value: "0"),
+            URLQueryItem(name: "skin", value: "hdrezka"),
+        ]))
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Referer")
+        let data = try await perform(request)
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            if String(decoding: data, as: UTF8.self).contains("loginForm") { throw RezkaError.loginRequired }
+            throw RezkaError.parsing("отзывы")
+        }
+        let comments = try RezkaParser.comments(in: SwiftSoup.parseBodyFragment(json["comments"] as? String ?? ""))
+        let navigator = try SwiftSoup.parseBodyFragment(json["navigation"] as? String ?? "")
+        let hasMore = try RezkaParser.hasPage(after: page, in: navigator)
+        return Page(items: comments, hasMore: !comments.isEmpty && hasMore)
+    }
+
     func seasons(postId: String, translatorId: String, favs: String) async throws -> [Season] {
         let json = try await postJSON("ajax/get_cdn_series/", form: [
             "id": postId,

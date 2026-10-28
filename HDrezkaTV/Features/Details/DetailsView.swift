@@ -10,6 +10,7 @@ struct DetailsView: View {
     @State private var didFocusPlay = false
     @State private var isCreatingFolder = false
     @State private var newFolderName = ""
+    @State private var revealedSpoilers: Set<String> = []
 
     init(item: MediaItem) {
         self.item = item
@@ -128,6 +129,10 @@ struct DetailsView: View {
 
                 if !details.related.isEmpty {
                     MediaRow(title: "Смотрите также", items: details.related)
+                }
+
+                if details.commentsCount > 0 || !model.comments.isEmpty {
+                    comments(details)
                 }
             }
             .padding(.vertical, 50)
@@ -255,6 +260,49 @@ struct DetailsView: View {
         }
     }
 
+    // MARK: Comments
+
+    private func comments(_ details: MediaDetails) -> some View {
+        VStack(alignment: .leading, spacing: 30) {
+            Text("Отзывы (\(max(details.commentsCount, model.comments.count)))")
+                .font(.title3.bold())
+
+            // Not lazy: below the fold a lazy stack has no cards yet, so focus could not move down into it.
+            VStack(alignment: .leading, spacing: 28) {
+                ForEach(model.comments) { comment in
+                    CommentCard(comment: comment, isRevealed: revealedSpoilers.contains(comment.id)) {
+                        guard comment.hasSpoiler else { return }
+                        if revealedSpoilers.contains(comment.id) {
+                            revealedSpoilers.remove(comment.id)
+                        } else {
+                            revealedSpoilers.insert(comment.id)
+                        }
+                    }
+                }
+            }
+
+            if let error = model.commentsError {
+                Text(error.localizedDescription)
+                    .foregroundStyle(.secondary)
+            }
+            if model.commentsError != nil || model.hasMoreComments {
+                // Stays on screen while loading so focus does not jump away from it.
+                Button {
+                    Task { await model.loadMoreComments() }
+                } label: {
+                    HStack(spacing: 16) {
+                        if model.isLoadingComments { ProgressView() }
+                        Text(model.commentsError != nil ? "Повторить" : "Показать ещё отзывы")
+                    }
+                }
+            } else if model.isLoadingComments {
+                ProgressView()
+            }
+        }
+        .padding(.horizontal, 80)
+        .focusSection()
+    }
+
     // MARK: Episodes
 
     private func episodes(_ details: MediaDetails) -> some View {
@@ -311,6 +359,59 @@ struct DetailsView: View {
                 .focusSection()
             }
         }
+    }
+}
+
+/// A comment as a focusable card, so the list scrolls with the remote; pressing it shows a hidden spoiler.
+private struct CommentCard: View {
+    let comment: Comment
+    let isRevealed: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline, spacing: 18) {
+                    Text(comment.author)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text(comment.date)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if comment.likes > 0 {
+                        Label("\(comment.likes)", systemImage: "hand.thumbsup.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(text)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                if comment.hasSpoiler {
+                    Text(isRevealed ? "Нажмите, чтобы скрыть спойлер" : "Спойлер скрыт — нажмите, чтобы показать")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.06))
+        }
+        .buttonStyle(.card)
+        // Long lines are hard to read across a TV; replies step in under their parent.
+        .frame(maxWidth: 1400, alignment: .leading)
+        .padding(.leading, CGFloat(min(comment.depth, 4)) * 60)
+    }
+
+    private var text: AttributedString {
+        var result = AttributedString()
+        for part in comment.parts {
+            var piece = AttributedString(part.isSpoiler && !isRevealed ? "[спойлер]" : part.text)
+            if part.isSpoiler { piece.foregroundColor = .orange }
+            result += piece
+        }
+        return result
     }
 }
 

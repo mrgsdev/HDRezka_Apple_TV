@@ -21,6 +21,11 @@ final class DetailsModel {
     private(set) var bookmarkFolders: [BookmarkFolder]?
     private(set) var bookmarkedIn: Set<String> = []
     var bookmarkError: String?
+    private(set) var comments: [Comment] = []
+    private(set) var hasMoreComments = false
+    private(set) var isLoadingComments = false
+    private(set) var commentsError: Error?
+    private var commentsPage = 0
 
     init(item: MediaItem) {
         self.item = item
@@ -54,12 +59,15 @@ final class DetailsModel {
             bookmarkedIn = details.bookmarkedIn
             state = .loaded(details)
 
-            guard details.isSeries, let chosen else { return }
-            if chosen.id == details.activeTranslatorId, !details.seasons.isEmpty {
-                apply(details.seasons, postId: details.postId)
-            } else {
-                await loadSeasons(details, chosen)
+            if details.isSeries, let chosen {
+                if chosen.id == details.activeTranslatorId, !details.seasons.isEmpty {
+                    apply(details.seasons, postId: details.postId)
+                } else {
+                    await loadSeasons(details, chosen)
+                }
             }
+            // After the episodes, so the play button is not kept waiting on the site.
+            if details.commentsCount > 0 { await loadMoreComments() }
         } catch where !error.isCancellation {
             state = .failed(error)
             AuthSession.shared.handle(error)
@@ -90,6 +98,26 @@ final class DetailsModel {
         self.seasons = seasons
         let lastSeason = WatchProgressStore.shared.last(postId: postId)?.seasonId
         selectedSeasonId = seasons.first { $0.id == lastSeason }?.id ?? seasons.first?.id
+    }
+
+    // MARK: Comments
+
+    func loadMoreComments() async {
+        guard let details, !isLoadingComments, commentsPage == 0 || hasMoreComments else { return }
+        isLoadingComments = true
+        commentsError = nil
+        do {
+            let page = try await RezkaClient.shared.comments(postId: details.postId, page: commentsPage + 1)
+            // A thread can straddle pages; keep the first copy of a comment.
+            let known = Set(comments.map(\.id))
+            comments += page.items.filter { !known.contains($0.id) }
+            hasMoreComments = page.hasMore
+            commentsPage += 1
+        } catch where !error.isCancellation {
+            commentsError = error
+            AuthSession.shared.handle(error)
+        } catch {}
+        isLoadingComments = false
     }
 
     // MARK: Bookmarks
