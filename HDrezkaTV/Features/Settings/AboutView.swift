@@ -24,6 +24,9 @@ struct AboutView: View {
             }
             .foregroundStyle(.secondary)
         }
+        // Without anything focusable the Menu button sends the app to the Home Screen
+        // instead of going back to Settings.
+        .focusable()
         .padding(80)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("О приложении")
