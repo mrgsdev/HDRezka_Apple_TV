@@ -104,6 +104,14 @@ final class RezkaClient {
         return try RezkaParser.page(in: doc, base: baseURL)
     }
 
+    /// The home page's "Новые фильмы, сериалы, мультфильмы и аниме" slider: recently added titles and episodes.
+    /// `id` 0 mixes all sections, like the slider before a section link is clicked.
+    func newest() async throws -> [MediaItem] {
+        let html = String(decoding: try await post("engine/ajax/get_newest_slider_content.php", form: ["id": "0"], timestamped: false), as: UTF8.self)
+        if html.contains("loginForm") { throw RezkaError.loginRequired }
+        return try RezkaParser.items(in: SwiftSoup.parseBodyFragment(html), base: baseURL)
+    }
+
     func search(_ query: String, page: Int = 1) async throws -> Page<MediaItem> {
         var items = [
             URLQueryItem(name: "do", value: "search"),
@@ -287,7 +295,7 @@ final class RezkaClient {
     }
     #endif
 
-    private func postJSON(_ path: String, form: [String: String], timestamped: Bool = true) async throws -> [String: Any] {
+    private func post(_ path: String, form: [String: String], timestamped: Bool = true) async throws -> Data {
         let query = timestamped ? [URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970 * 1000)))] : []
         var request = URLRequest(url: url(path, query: query))
         request.httpMethod = "POST"
@@ -296,8 +304,11 @@ final class RezkaClient {
         request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
         request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Referer")
         request.httpBody = Data(Self.formEncode(form).utf8)
+        return try await perform(request)
+    }
 
-        let data = try await perform(request)
+    private func postJSON(_ path: String, form: [String: String], timestamped: Bool = true) async throws -> [String: Any] {
+        let data = try await post(path, form: form, timestamped: timestamped)
         guard let json = (try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)) as? [String: Any] else {
             if String(decoding: data, as: UTF8.self).contains("loginForm") { throw RezkaError.loginRequired }
             throw RezkaError.parsing("JSON \(path)")

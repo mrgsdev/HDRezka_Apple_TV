@@ -17,14 +17,28 @@ final class HomeModel {
     /// Bumped per load so a superseded or cancelled load never overwrites a newer result.
     private var generation = 0
 
+    private enum Source {
+        /// The site's home page slider of recently added titles and episodes.
+        case newest
+        case catalog(CatalogSection?, CatalogFilter)
+
+        func items() async throws -> [MediaItem] {
+            switch self {
+            case .newest: try await RezkaClient.shared.newest()
+            case let .catalog(section, filter): try await RezkaClient.shared.catalog(section, filter: filter).items
+            }
+        }
+    }
+
     nonisolated static let continueTitle = "Продолжить просмотр"
-    private static let sources: [(String, CatalogSection?, CatalogFilter)] = [
-        ("Новинки", nil, .last),
-        ("Популярные фильмы", .films, .popular),
-        ("Популярные сериалы", .series, .popular),
-        ("Сейчас смотрят", .films, .watching),
-        ("Мультфильмы", .cartoons, .popular),
-        ("Аниме", .animation, .popular),
+    private static let sources: [(String, Source)] = [
+        ("Новые фильмы, сериалы, мультфильмы и аниме", .newest),
+        ("Новинки", .catalog(nil, .last)),
+        ("Популярные фильмы", .catalog(.films, .popular)),
+        ("Популярные сериалы", .catalog(.series, .popular)),
+        ("Сейчас смотрят", .catalog(.films, .watching)),
+        ("Мультфильмы", .catalog(.cartoons, .popular)),
+        ("Аниме", .catalog(.animation, .popular)),
     ]
 
     func loadIfNeeded() async {
@@ -54,7 +68,7 @@ final class HomeModel {
             }
             for source in Self.sources {
                 group.addTask {
-                    do { return (source.0, .success(try await RezkaClient.shared.catalog(source.1, filter: source.2).items)) }
+                    do { return (source.0, .success(try await source.1.items())) }
                     catch { return (source.0, .failure(error)) }
                 }
             }
