@@ -1,20 +1,50 @@
 import SwiftUI
 
+/// Unlike AsyncImage, retries a load that was cancelled because the poster left the screen
+/// (a shelf arriving above pushes rows out of the lazy stack) instead of keeping the failure.
 struct PosterImage: View {
     let url: URL?
 
+    @State private var image: UIImage?
+    @State private var failed = false
+
     var body: some View {
-        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
-            switch phase {
-            case let .success(image):
-                image.resizable().aspectRatio(contentMode: .fill)
-            case .failure:
-                placeholder(icon: "film")
-            default:
-                placeholder(icon: nil)
+        ZStack {
+            if let image = url.flatMap(PosterCache.image(for:)) ?? image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .transition(.opacity)
+            } else {
+                placeholder(icon: failed ? "film" : nil)
             }
         }
         .clipped()
+        // Runs again whenever the poster reappears, which is what retries an interrupted load.
+        .task(id: url) { await load() }
+    }
+
+    private func load() async {
+        guard let url else {
+            failed = true
+            return
+        }
+        if let cached = PosterCache.image(for: url) {
+            image = cached
+            return
+        }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let decoded = await UIImage(data: data)?.byPreparingForDisplay() else {
+                failed = true
+                return
+            }
+            PosterCache.store(decoded, for: url)
+            withAnimation(.easeOut(duration: 0.2)) { image = decoded }
+        } catch {
+            // A cancelled load stays a blank placeholder and is retried when the poster reappears.
+            if !error.isCancellation { failed = true }
+        }
     }
 
     private func placeholder(icon: String?) -> some View {
@@ -24,6 +54,24 @@ struct PosterImage: View {
                 Image(systemName: icon).font(.system(size: 50)).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// Decoded posters kept in memory so rows scrolling back into view show them at once.
+enum PosterCache {
+    private static let cache: NSCache<NSURL, UIImage> = {
+        let cache = NSCache<NSURL, UIImage>()
+        cache.totalCostLimit = 64 * 1024 * 1024
+        return cache
+    }()
+
+    static func image(for url: URL) -> UIImage? {
+        cache.object(forKey: url as NSURL)
+    }
+
+    static func store(_ image: UIImage, for url: URL) {
+        let bytes = Int(image.size.width * image.scale * image.size.height * image.scale) * 4
+        cache.setObject(image, forKey: url as NSURL, cost: bytes)
     }
 }
 
