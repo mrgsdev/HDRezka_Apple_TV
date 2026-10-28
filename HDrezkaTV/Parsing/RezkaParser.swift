@@ -74,6 +74,50 @@ enum RezkaParser {
         return Page(items: items, hasMore: next?.parent()?.tagName() == "a" && !items.isEmpty)
     }
 
+    private static func franchise(in doc: Document, base: URL) throws -> Franchise? {
+        let items = try doc.select(".b-post__partcontent_item").array()
+        guard !items.isEmpty else { return nil }
+        let parts = try items.map { item in
+            let href = try item.attr("data-url").nonEmpty ?? item.select(".title a").first()?.attr("href")
+            let rating = try item.select(".rating").first()?.text().nonEmpty
+            return FranchisePart(
+                number: try item.select(".num").first()?.text() ?? "",
+                title: try item.select(".title").first()?.text() ?? "",
+                year: try item.select(".year").first()?.text() ?? "",
+                rating: rating == "—" ? nil : rating,
+                path: item.hasClass("current") ? nil : href.flatMap { sitePath($0, base: base) }
+            )
+        }
+        let title = try doc.select(".b-post__franchise_link_title").first()?.text().nonEmpty ?? "Все части франшизы"
+        return Franchise(title: title, parts: parts)
+    }
+
+    /// The "даты выхода серий" tables: the latest season first, then the older ones the site folds away.
+    private static func schedule(in doc: Document) throws -> [ScheduleSeason] {
+        try doc.select(".b-post__schedule_block").array().compactMap { block in
+            let episodes = try block.select("tr").array().compactMap { row -> ScheduleEpisode? in
+                // The "загрузить еще серии" row has no .td-1; the hidden rows it reveals are already here.
+                guard let number = try row.select(".td-1").first() else { return nil }
+                let names = try row.select(".td-2").first()
+                let label = try number.text()
+                return ScheduleEpisode(
+                    id: try number.attr("data-id").nonEmpty ?? label,
+                    label: label.range(of: "сезон ").map { String(label[$0.upperBound...]) } ?? label,
+                    title: try names?.select("b").first()?.text() ?? "",
+                    originalTitle: try names?.select("span").first()?.text().nonEmpty,
+                    date: try row.select(".td-4").first()?.text() ?? "",
+                    isReleased: try !row.select(".exists-episode").isEmpty()
+                )
+            }
+            guard !episodes.isEmpty else { return nil }
+            // "Игры Биста - даты выхода серий 2 сезона" → "2 сезон", like the older blocks are titled.
+            let title = try block.select(".b-post__schedule_block_title .title").first()?.text() ?? ""
+            let season = title.range(of: #"(\d+) сезона$"#, options: .regularExpression)
+                .map { title[$0].replacingOccurrences(of: "сезона", with: "сезон") } ?? title
+            return ScheduleSeason(title: season, episodes: episodes)
+        }
+    }
+
     /// Links in the details row "Из серии", which point to collections.
     private static func collectionLinks(in doc: Document) throws -> [Listing] {
         let row = try doc.select(".b-post__info tr").array().first { try $0.select("td").first()?.text().hasPrefix("Из серии") == true }
@@ -193,7 +237,13 @@ enum RezkaParser {
             bookmarkFolders: bookmarks?.folders,
             bookmarkedIn: bookmarks?.checked ?? [],
             commentsCount: try Int(doc.select("#comments-list-button em").first()?.text() ?? "") ?? 0,
-            collections: try collectionLinks(in: doc)
+            collections: try collectionLinks(in: doc),
+            franchise: try franchise(in: doc, base: base),
+            schedule: try schedule(in: doc),
+            // Nothing to play: no dub list and no player config, only the site's status and maybe a trailer.
+            upcomingStatus: translators.isEmpty
+                ? try doc.select(".b-post__go_status").first()?.text().nonEmpty ?? "Ожидается"
+                : nil
         )
     }
 

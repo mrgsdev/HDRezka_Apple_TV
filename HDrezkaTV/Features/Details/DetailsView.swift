@@ -11,6 +11,7 @@ struct DetailsView: View {
     @State private var isCreatingFolder = false
     @State private var newFolderName = ""
     @State private var revealedSpoilers: Set<String> = []
+    @State private var scheduleSeasonId: String?
 
     init(item: MediaItem) {
         self.item = item
@@ -130,6 +131,14 @@ struct DetailsView: View {
                     episodes(details)
                 }
 
+                if !details.schedule.isEmpty {
+                    schedule(details.schedule)
+                }
+
+                if let franchise = details.franchise {
+                    franchiseRow(franchise)
+                }
+
                 if !details.related.isEmpty {
                     MediaRow(title: "Смотрите также", items: details.related)
                 }
@@ -144,7 +153,7 @@ struct DetailsView: View {
 
     /// True once the main play button exists (for series it waits for the episode list).
     private var isPlayReady: Bool {
-        guard let details = model.details else { return false }
+        guard let details = model.details, details.upcomingStatus == nil else { return false }
         return !details.isSeries || model.resumeEpisode(progress: progress) != nil
     }
 
@@ -184,7 +193,9 @@ struct DetailsView: View {
     @ViewBuilder
     private func actions(_ details: MediaDetails) -> some View {
         HStack(spacing: 30) {
-            if details.isSeries {
+            if details.upcomingStatus != nil {
+                upcoming
+            } else if details.isSeries {
                 if let target = model.resumeEpisode(progress: progress) {
                     let season = model.seasons.first { $0.id == target.episode.seasonId }?.title ?? ""
                     Button {
@@ -253,6 +264,15 @@ struct DetailsView: View {
         }
     }
 
+    /// Shown instead of "Смотреть" for a title the site has not got yet.
+    private var upcoming: some View {
+        Label("В ожидании", systemImage: "clock.fill")
+            .font(.headline)
+            .padding(.horizontal, 30)
+            .padding(.vertical, 16)
+            .background(.white.opacity(0.1), in: Capsule())
+    }
+
     /// Folders with a checkmark where the title is; picking one adds or removes it there.
     private func bookmarkMenu(_ folders: [BookmarkFolder]) -> some View {
         Menu {
@@ -277,6 +297,66 @@ struct DetailsView: View {
             Label(model.bookmarkedIn.isEmpty ? "В закладки" : "В закладках",
                   systemImage: model.bookmarkedIn.isEmpty ? "bookmark" : "bookmark.fill")
                 .lineLimit(1)
+        }
+    }
+
+    // MARK: Schedule & franchise
+
+    /// The site's air-date table: a button per season, then that season's episodes as focusable rows.
+    private func schedule(_ seasons: [ScheduleSeason]) -> some View {
+        let season = seasons.first { $0.id == scheduleSeasonId } ?? seasons[0]
+        return VStack(alignment: .leading, spacing: 24) {
+            Text("График выхода серий")
+                .font(.title3.bold())
+                .padding(.horizontal, 80)
+            if seasons.count > 1 {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 20) {
+                        ForEach(seasons) { item in
+                            Button {
+                                scheduleSeasonId = item.id
+                            } label: {
+                                HStack(spacing: 10) {
+                                    if item.id == season.id {
+                                        Image(systemName: "checkmark")
+                                    }
+                                    Text(item.title)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 80)
+                    .padding(.vertical, 16)
+                }
+                .scrollClipDisabled()
+                .focusSection()
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(season.episodes) { episode in
+                    ScheduleRow(episode: episode)
+                }
+            }
+            .padding(.horizontal, 80)
+            .focusSection()
+        }
+    }
+
+    private func franchiseRow(_ franchise: Franchise) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text(franchise.title)
+                .font(.title3.bold())
+                .padding(.horizontal, 80)
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 36) {
+                    ForEach(franchise.parts) { part in
+                        FranchiseCard(part: part)
+                    }
+                }
+                .padding(.horizontal, 80)
+                .padding(.vertical, 20)
+            }
+            .scrollClipDisabled()
+            .focusSection()
         }
     }
 
@@ -379,6 +459,93 @@ struct DetailsView: View {
                 .focusSection()
             }
         }
+    }
+}
+
+/// One line of the air-date table; focusable so a long season scrolls with the remote.
+private struct ScheduleRow: View {
+    let episode: ScheduleEpisode
+
+    var body: some View {
+        Button {} label: {
+            HStack(spacing: 30) {
+                Text(episode.label)
+                    .font(.headline)
+                    .frame(width: 170, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(episode.title.isEmpty ? "Без названия" : episode.title)
+                        .lineLimit(1)
+                    if let original = episode.originalTitle {
+                        Text(original)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                Text(episode.date)
+                    .foregroundStyle(.secondary)
+                Label(episode.isReleased ? "Вышла" : "Ожидается",
+                      systemImage: episode.isReleased ? "checkmark.circle.fill" : "clock")
+                    .font(.caption)
+                    .foregroundStyle(episode.isReleased ? .green : .orange)
+                    .frame(width: 210, alignment: .leading)
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 16)
+            .frame(maxWidth: 1500, alignment: .leading)
+            .background(Color.white.opacity(0.06))
+        }
+        .buttonStyle(.card)
+    }
+}
+
+/// A part of the franchise; the one being viewed is marked and not a link.
+private struct FranchiseCard: View {
+    let part: FranchisePart
+
+    var body: some View {
+        if let path = part.path {
+            NavigationLink(value: MediaItem(path: path, title: part.title, subtitle: part.year, posterURL: nil, kind: .unknown, badge: nil)) {
+                content
+            }
+            .buttonStyle(.card)
+        } else {
+            content
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor, lineWidth: 3))
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Часть \(part.number)")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if part.isCurrent {
+                    Text("Сейчас")
+                        .font(.caption.bold())
+                        .foregroundStyle(Color.accentColor)
+                } else if let rating = part.rating {
+                    Label(rating, systemImage: "star.fill")
+                        .font(.caption)
+                        .foregroundStyle(.yellow)
+                }
+            }
+            Text(part.title)
+                .font(.headline)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            Spacer(minLength: 0)
+            Text(part.year)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(22)
+        .frame(width: 360, height: 190, alignment: .topLeading)
+        .background(Color.white.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 

@@ -58,6 +58,47 @@ struct SectionMenu: Hashable {
     let studios: [Listing]
 }
 
+struct Franchise: Hashable {
+    /// E.g. «Все части фильма "Пила"».
+    let title: String
+    let parts: [FranchisePart]
+}
+
+struct FranchisePart: Identifiable, Hashable {
+    /// The part's number in the franchise, counted from the first.
+    let number: String
+    let title: String
+    /// E.g. "2024 год".
+    let year: String
+    /// Kinopoisk rating, nil when the site shows a dash.
+    let rating: String?
+    /// Site path of its details page; nil for the title being viewed.
+    let path: String?
+
+    var id: String { "\(number)|\(title)" }
+    var isCurrent: Bool { path == nil }
+}
+
+struct ScheduleSeason: Identifiable, Hashable {
+    /// E.g. "2 сезон".
+    let title: String
+    let episodes: [ScheduleEpisode]
+
+    var id: String { title }
+}
+
+struct ScheduleEpisode: Identifiable, Hashable {
+    let id: String
+    /// E.g. "10 серия".
+    let label: String
+    let title: String
+    let originalTitle: String?
+    /// Air date as the site writes it, e.g. "26 февраля 2026".
+    let date: String
+    /// Whether the episode is already on the site.
+    let isReleased: Bool
+}
+
 /// A card on the site's collections page.
 struct MediaCollection: Identifiable, Hashable {
     let listing: Listing
@@ -122,6 +163,13 @@ struct MediaDetails {
     let commentsCount: Int
     /// The collections in the "Из серии" row, e.g. "Сериалы Amazon".
     let collections: [Listing]
+    /// Other films and series of the same franchise, as the site lists them (newest first).
+    let franchise: Franchise?
+    /// Episode release dates by season, latest season first; empty for films.
+    let schedule: [ScheduleSeason]
+    /// The site's note for a title that cannot be played yet, e.g. "Ожидаем фильм в хорошем качестве...";
+    /// nil when it has something to watch.
+    let upcomingStatus: String?
 
     func info(_ title: String) -> String? {
         info.first { $0.title.hasPrefix(title) }?.value
