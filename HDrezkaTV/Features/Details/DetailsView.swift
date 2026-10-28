@@ -53,12 +53,12 @@ struct DetailsView: View {
             Button("Отмена", role: .cancel) {}
         }
         .alert("Не получилось", isPresented: Binding(
-            get: { model.bookmarkError != nil },
-            set: { if !$0 { model.bookmarkError = nil } }
+            get: { model.actionError != nil },
+            set: { if !$0 { model.actionError = nil } }
         )) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(model.bookmarkError ?? "")
+            Text(model.actionError ?? "")
         }
     }
 
@@ -333,7 +333,9 @@ struct DetailsView: View {
             }
             VStack(alignment: .leading, spacing: 14) {
                 ForEach(season.episodes) { episode in
-                    ScheduleRow(episode: episode)
+                    ScheduleRow(episode: episode, isWatched: model.watchedEpisodes.contains(episode.id)) {
+                        Task { await model.toggleWatched(episode) }
+                    }
                 }
             }
             .padding(.horizontal, 80)
@@ -444,9 +446,12 @@ struct DetailsView: View {
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 36) {
                         ForEach(season.episodes) { episode in
+                            let scheduled = model.scheduleEpisode(for: episode)
                             EpisodeCard(
                                 episode: episode,
-                                entry: progress.entry(postId: details.postId, seasonId: episode.seasonId, episodeId: episode.id)
+                                entry: progress.entry(postId: details.postId, seasonId: episode.seasonId, episodeId: episode.id),
+                                isWatched: scheduled.map { model.watchedEpisodes.contains($0.id) } ?? false,
+                                onToggleWatched: scheduled.map { scheduled in { Task { await model.toggleWatched(scheduled) } } }
                             ) {
                                 model.play(episode: episode)
                             }
@@ -462,12 +467,14 @@ struct DetailsView: View {
     }
 }
 
-/// One line of the air-date table; focusable so a long season scrolls with the remote.
+/// One line of the air-date table; pressing it flips the episode's "просмотрено" mark on the site.
 private struct ScheduleRow: View {
     let episode: ScheduleEpisode
+    let isWatched: Bool
+    let onToggle: () -> Void
 
     var body: some View {
-        Button {} label: {
+        Button(action: onToggle) {
             HStack(spacing: 30) {
                 Text(episode.label)
                     .font(.headline)
@@ -489,11 +496,15 @@ private struct ScheduleRow: View {
                       systemImage: episode.isReleased ? "checkmark.circle.fill" : "clock")
                     .font(.caption)
                     .foregroundStyle(episode.isReleased ? .green : .orange)
-                    .frame(width: 210, alignment: .leading)
+                    .frame(width: 190, alignment: .leading)
+                Label(isWatched ? "Просмотрено" : "Не просмотрено", systemImage: isWatched ? "eye.fill" : "eye.slash")
+                    .font(.caption)
+                    .foregroundStyle(isWatched ? Color.accentColor : .secondary)
+                    .frame(width: 270, alignment: .leading)
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 16)
-            .frame(maxWidth: 1500, alignment: .leading)
+            .frame(maxWidth: 1600, alignment: .leading)
             .background(Color.white.opacity(0.06))
         }
         .buttonStyle(.card)
@@ -605,9 +616,26 @@ private struct CommentCard: View {
 private struct EpisodeCard: View {
     let episode: Episode
     let entry: WatchProgressStore.Entry?
+    /// Marked "просмотрено" on the site.
+    var isWatched = false
+    /// Set when the episode is in the site's schedule, so its mark can be changed with a long press.
+    var onToggleWatched: (() -> Void)? = nil
     let action: () -> Void
 
     var body: some View {
+        if let onToggleWatched {
+            card.contextMenu {
+                Button(action: onToggleWatched) {
+                    Label(isWatched ? "Снять отметку «просмотрено»" : "Отметить просмотренной",
+                          systemImage: isWatched ? "eye.slash" : "eye")
+                }
+            }
+        } else {
+            card
+        }
+    }
+
+    private var card: some View {
         Button(action: action) {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [Color(white: 0.24), Color(white: 0.14)], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -617,11 +645,11 @@ private struct EpisodeCard: View {
                             .font(.headline)
                             .lineLimit(2)
                         Spacer()
-                        if entry?.isFinished == true {
+                        if entry?.isFinished == true || isWatched {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                         }
                     }
-                    if let entry, !entry.isFinished {
+                    if let entry, !entry.isFinished, !isWatched {
                         ProgressView(value: entry.fraction)
                             .tint(.accentColor)
                     }

@@ -88,15 +88,21 @@ struct ScheduleSeason: Identifiable, Hashable {
 }
 
 struct ScheduleEpisode: Identifiable, Hashable {
+    /// The site's id of the row, also used to toggle "просмотрено".
     let id: String
     /// E.g. "10 серия".
     let label: String
+    /// Season and episode numbers from "2 сезон 10 серия", to match the player's episode list.
+    let seasonNumber: String?
+    let episodeNumber: String?
     let title: String
     let originalTitle: String?
     /// Air date as the site writes it, e.g. "26 февраля 2026".
     let date: String
     /// Whether the episode is already on the site.
     let isReleased: Bool
+    /// Marked "просмотрено" in the account.
+    let isWatched: Bool
 }
 
 /// A card on the site's collections page.

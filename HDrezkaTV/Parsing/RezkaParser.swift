@@ -100,13 +100,17 @@ enum RezkaParser {
                 guard let number = try row.select(".td-1").first() else { return nil }
                 let names = try row.select(".td-2").first()
                 let label = try number.text()
+                let numbers = label.matches(of: /\d+/).map { String($0.output) }
                 return ScheduleEpisode(
                     id: try number.attr("data-id").nonEmpty ?? label,
                     label: label.range(of: "сезон ").map { String(label[$0.upperBound...]) } ?? label,
+                    seasonNumber: numbers.count == 2 ? numbers[0] : nil,
+                    episodeNumber: numbers.count == 2 ? numbers[1] : nil,
                     title: try names?.select("b").first()?.text() ?? "",
                     originalTitle: try names?.select("span").first()?.text().nonEmpty,
                     date: try row.select(".td-4").first()?.text() ?? "",
-                    isReleased: try !row.select(".exists-episode").isEmpty()
+                    isReleased: try !row.select(".exists-episode").isEmpty(),
+                    isWatched: try !row.select(".watch-episode-action.watched").isEmpty()
                 )
             }
             guard !episodes.isEmpty else { return nil }

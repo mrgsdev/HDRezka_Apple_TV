@@ -20,7 +20,10 @@ final class DetailsModel {
     /// The account's bookmark folders; nil hides the bookmark button (logged out).
     private(set) var bookmarkFolders: [BookmarkFolder]?
     private(set) var bookmarkedIn: Set<String> = []
-    var bookmarkError: String?
+    /// Shown in a "Не получилось" alert: a failed bookmark or watched-mark change.
+    var actionError: String?
+    /// Schedule ids of the episodes marked "просмотрено" in the account.
+    private(set) var watchedEpisodes: Set<String> = []
     private(set) var comments: [Comment] = []
     private(set) var hasMoreComments = false
     private(set) var isLoadingComments = false
@@ -57,6 +60,7 @@ final class DetailsModel {
             translator = chosen
             bookmarkFolders = details.bookmarkFolders
             bookmarkedIn = details.bookmarkedIn
+            watchedEpisodes = Set(details.schedule.flatMap(\.episodes).filter(\.isWatched).map(\.id))
             state = .loaded(details)
 
             if details.isSeries, let chosen {
@@ -120,6 +124,28 @@ final class DetailsModel {
         isLoadingComments = false
     }
 
+    // MARK: Watched marks
+
+    /// The schedule row for a player episode, matched by season and episode number.
+    func scheduleEpisode(for episode: Episode) -> ScheduleEpisode? {
+        details?.schedule.lazy.flatMap(\.episodes).first {
+            $0.seasonNumber == episode.seasonId && $0.episodeNumber == episode.id
+        }
+    }
+
+    func toggleWatched(_ episode: ScheduleEpisode) async {
+        do {
+            try await RezkaClient.shared.toggleEpisodeWatched(id: episode.id)
+            if watchedEpisodes.contains(episode.id) {
+                watchedEpisodes.remove(episode.id)
+            } else {
+                watchedEpisodes.insert(episode.id)
+            }
+        } catch {
+            report(error)
+        }
+    }
+
     // MARK: Bookmarks
 
     func toggleBookmark(in folder: BookmarkFolder) async {
@@ -134,7 +160,7 @@ final class DetailsModel {
             }
             NotificationCenter.default.post(name: .bookmarksChanged, object: nil)
         } catch {
-            reportBookmark(error)
+            report(error)
         }
     }
 
@@ -148,13 +174,13 @@ final class DetailsModel {
             try await RezkaClient.shared.addBookmark(postId: details.postId, folder: folder.id)
             bookmarkedIn.insert(folder.id)
         } catch {
-            reportBookmark(error)
+            report(error)
         }
     }
 
-    private func reportBookmark(_ error: Error) {
+    private func report(_ error: Error) {
         guard !error.isCancellation else { return }
-        bookmarkError = error.localizedDescription
+        actionError = error.localizedDescription
         AuthSession.shared.handle(error)
     }
 

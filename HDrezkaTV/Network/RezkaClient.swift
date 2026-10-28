@@ -298,6 +298,16 @@ final class RezkaClient {
         ])
     }
 
+    /// Flips the "просмотрено" mark of an episode in the site's air-date table; the site only toggles,
+    /// so call it for an episode whose current mark is known.
+    func toggleEpisodeWatched(id: String) async throws {
+        let json = try await postJSON("engine/ajax/schedule_watched.php", form: ["id": id], timestamped: false)
+        guard json["success"] as? Bool == true else {
+            if json["message"] as? String == "need_auth" { throw RezkaError.loginRequired }
+            throw siteError(json, fallback: "Не удалось изменить отметку «просмотрено».")
+        }
+    }
+
     /// Removes an entry from the site's "continue watching" list.
     func removeFromContinue(id: String) async throws {
         let json = try await postJSON("engine/ajax/cdn_saves_remove.php", form: ["id": id], timestamped: false)
