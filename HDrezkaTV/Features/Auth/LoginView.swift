@@ -68,6 +68,10 @@ struct LoginView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .onSubmit(applyMirror)
+                    Text(SettingsView.mirrorHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.top, 20)
             }

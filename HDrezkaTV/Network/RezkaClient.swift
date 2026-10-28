@@ -44,7 +44,7 @@ enum CatalogFilter: String, CaseIterable, Identifiable, Hashable {
 final class RezkaClient {
     static let shared = RezkaClient()
 
-    private static let userAgent =
+    static let userAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
     private let session: URLSession
