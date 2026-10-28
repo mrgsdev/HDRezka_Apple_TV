@@ -1,7 +1,154 @@
 import SwiftUI
 
 struct CatalogView: View {
+    enum Sort: Hashable {
+        case filter(CatalogFilter)
+        /// The site's best-rated list, optionally for one year.
+        case best
+
+        var title: String {
+            switch self {
+            case let .filter(filter): filter.title
+            case .best: "Лучшие"
+            }
+        }
+    }
+
     let section: CatalogSection
+
+    /// A genre or studio from the site's menu; nil shows the whole section.
+    @State private var genre: Listing?
+    @State private var sort: Sort = .filter(.last)
+    /// nil is "за всё время".
+    @State private var bestYear: Int?
+    @State private var loader = PagedLoader()
+
+    private static let years = Array((1896...Calendar.current.component(.year, from: Date()) + 1).reversed())
+
+    private var menu: SectionMenu? { SiteMenu.shared.menus[section] }
+
+    /// Studios are collections on the site, so they have no best-of list.
+    private var isStudio: Bool {
+        genre.map { menu?.studios.contains($0) == true } ?? false
+    }
+
+    private var sorts: [Sort] {
+        CatalogFilter.allCases.map(Sort.filter) + (isStudio ? [] : [.best])
+    }
+
+    private var key: String {
+        "\(genre?.path ?? section.rawValue)|\(sort)|\(bestYear ?? 0)"
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 50) {
+                HStack(spacing: 30) {
+                    // The menus keep their labels whole; the five sort segments take the rest of the row.
+                    if let menu {
+                        genreMenu(menu).fixedSize()
+                    }
+                    Picker("Сортировка", selection: $sort) {
+                        ForEach(sorts, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    if sort == .best {
+                        yearMenu.fixedSize()
+                    }
+                }
+                .focusSection()
+
+                MediaGrid(items: loader.items) { await loader.loadMore() }
+                PagedFooter(loader: loader, emptyText: "Здесь пока ничего нет — попробуйте другую сортировку")
+            }
+            .padding(.horizontal, 80)
+            .padding(.vertical, 40)
+        }
+        .task { await SiteMenu.shared.loadIfNeeded() }
+        .onChange(of: genre) {
+            if isStudio, sort == .best { sort = .filter(.last) }
+        }
+        .task(id: key) {
+            guard loader.key != key || (loader.items.isEmpty && loader.error == nil) else { return }
+            let section = section, genre = genre, sort = sort, year = bestYear
+            loader.reset(key: key) { page in
+                switch sort {
+                case let .filter(filter):
+                    try await RezkaClient.shared.listing(genre?.path ?? "\(section.rawValue)/", filter: filter, page: page)
+                case .best:
+                    try await RezkaClient.shared.listing(section.bestPath(genre: genre, year: year), page: page)
+                }
+            }
+            await loader.loadMore()
+        }
+    }
+
+    private func genreMenu(_ menu: SectionMenu) -> some View {
+        Menu {
+            Button {
+                genre = nil
+            } label: {
+                choice("Все жанры", isOn: genre == nil)
+            }
+            Section("Жанры") {
+                ForEach(menu.genres) { item in
+                    Button {
+                        genre = item
+                    } label: {
+                        choice(item.title, isOn: genre == item)
+                    }
+                }
+            }
+            if !menu.studios.isEmpty {
+                Section("Студии") {
+                    ForEach(menu.studios) { item in
+                        Button {
+                            genre = item
+                        } label: {
+                            choice(item.title, isOn: genre == item)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label(genre?.title ?? "Все жанры", systemImage: "line.3.horizontal.decrease.circle")
+                .lineLimit(1)
+        }
+    }
+
+    private var yearMenu: some View {
+        Menu {
+            Button {
+                bestYear = nil
+            } label: {
+                choice("За всё время", isOn: bestYear == nil)
+            }
+            ForEach(Self.years, id: \.self) { year in
+                Button {
+                    bestYear = year
+                } label: {
+                    choice(String(year), isOn: bestYear == year)
+                }
+            }
+        } label: {
+            Label(bestYear.map(String.init) ?? "За всё время", systemImage: "calendar")
+                .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private func choice(_ title: String, isOn: Bool) -> some View {
+        if isOn {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
+        }
+    }
+}
+
+/// Any list from the site by path: a collection from the collections tab or a details page, or announcements.
+struct ListingView: View {
+    let listing: Listing
 
     @State private var filter: CatalogFilter = .last
     @State private var loader = PagedLoader()
@@ -9,15 +156,19 @@ struct CatalogView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 50) {
-                Picker("Сортировка", selection: $filter) {
-                    ForEach(CatalogFilter.allCases) { Text($0.title).tag($0) }
+                Text(listing.title)
+                    .font(.title2.bold())
+                if listing.isSortable {
+                    Picker("Сортировка", selection: $filter) {
+                        ForEach(CatalogFilter.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 1050)
+                    .focusSection()
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 1100)
-                .focusSection()
 
                 MediaGrid(items: loader.items) { await loader.loadMore() }
-                PagedFooter(loader: loader)
+                PagedFooter(loader: loader, emptyText: listing.isSortable ? "Здесь пока ничего нет — попробуйте другую сортировку" : "Здесь пока ничего нет")
             }
             .padding(.horizontal, 80)
             .padding(.vertical, 40)
@@ -25,9 +176,9 @@ struct CatalogView: View {
         .task(id: filter) {
             let key = filter.rawValue
             guard loader.key != key || (loader.items.isEmpty && loader.error == nil) else { return }
-            let section = section, filter = filter
+            let listing = listing, filter = filter
             loader.reset(key: key) { page in
-                try await RezkaClient.shared.catalog(section, filter: filter, page: page)
+                try await RezkaClient.shared.listing(listing.path, filter: listing.isSortable ? filter : nil, page: page)
             }
             await loader.loadMore()
         }

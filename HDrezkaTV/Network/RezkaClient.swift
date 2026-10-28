@@ -26,16 +26,27 @@ enum CatalogSection: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+extension CatalogSection {
+    /// `films/best/drama/2026/`: the site's best-rated list, optionally for one genre and year.
+    func bestPath(genre: Listing?, year: Int?) -> String {
+        var path = "\(rawValue)/best/"
+        if let genre = genre?.path.split(separator: "/").last { path += "\(genre)/" }
+        if let year { path += "\(year)/" }
+        return path
+    }
+}
+
 enum CatalogFilter: String, CaseIterable, Identifiable, Hashable {
-    case last, popular, watching
+    case last, popular, watching, soon
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .last: "Последние поступления"
+        case .last: "Последние"
         case .popular: "Популярные"
         case .watching: "Сейчас смотрят"
+        case .soon: "В ожидании"
         }
     }
 }
@@ -98,10 +109,35 @@ final class RezkaClient {
     // MARK: Listings
 
     func catalog(_ section: CatalogSection?, filter: CatalogFilter = .last, page: Int = 1) async throws -> Page<MediaItem> {
-        var path = section.map { "\($0.rawValue)/" } ?? "new/"
+        try await listing(section.map { "\($0.rawValue)/" } ?? "new/", filter: filter, page: page)
+    }
+
+    /// Any list of titles by its site path. The first one loaded also fills `SiteMenu` from the page's top menu.
+    func listing(_ path: String, filter: CatalogFilter? = nil, page: Int = 1) async throws -> Page<MediaItem> {
+        var path = path
         if page > 1 { path += "page/\(page)/" }
-        let doc = try await document(url(path, query: [URLQueryItem(name: "filter", value: filter.rawValue)]))
+        let doc: Document
+        do {
+            doc = try await document(url(path, query: filter.map { [URLQueryItem(name: "filter", value: $0.rawValue)] } ?? []))
+        } catch RezkaError.badStatus(let code) where code == 404 {
+            // An empty list comes back as a normal page with status 404, e.g. "Последние" in a collection
+            // of titles that are all still "В ожидании".
+            return Page(items: [], hasMore: false)
+        }
+        if await SiteMenu.shared.menus.isEmpty, let menus = try? RezkaParser.sectionMenus(in: doc), !menus.isEmpty {
+            await SiteMenu.shared.update(menus)
+        }
         return try RezkaParser.page(in: doc, base: baseURL)
+    }
+
+    /// Reads the top menu from a section page, for when no listing has brought it yet.
+    func sectionMenus() async throws -> [CatalogSection: SectionMenu] {
+        try RezkaParser.sectionMenus(in: try await document(url("films/")))
+    }
+
+    func collections(page: Int = 1) async throws -> Page<MediaCollection> {
+        let doc = try await document(url(page > 1 ? "collections/page/\(page)/" : "collections/"))
+        return try RezkaParser.collections(in: doc, base: baseURL)
     }
 
     /// The home page's "Новые фильмы, сериалы, мультфильмы и аниме" slider: recently added titles and episodes.

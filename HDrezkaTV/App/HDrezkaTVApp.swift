@@ -46,6 +46,9 @@ struct MainTabView: View {
                     NavigationStack { CatalogView(section: section).mediaDestinations() }
                 }
             }
+            Tab("Подборки", systemImage: "square.stack") {
+                NavigationStack { CollectionsView().mediaDestinations() }
+            }
             Tab("Закладки", systemImage: "bookmark") {
                 NavigationStack { BookmarksView().mediaDestinations() }
             }

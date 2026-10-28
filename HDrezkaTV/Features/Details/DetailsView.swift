@@ -117,6 +117,9 @@ struct DetailsView: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                         }
+                        if !details.collections.isEmpty {
+                            collections(details.collections)
+                        }
                     }
                 }
                 .padding(.horizontal, 80)
@@ -157,6 +160,23 @@ struct DetailsView: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .lineLimit(2)
+    }
+
+    /// The "Из серии" row as buttons into those collections.
+    private func collections(_ listings: [Listing]) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 20) {
+                ForEach(listings) { listing in
+                    NavigationLink(value: listing) {
+                        Label(listing.title, systemImage: "square.stack")
+                            .font(.caption)
+                    }
+                }
+            }
+            .padding(.vertical, 12)
+        }
+        .scrollClipDisabled()
+        .focusSection()
     }
 
     // MARK: Actions

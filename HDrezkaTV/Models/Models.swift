@@ -38,6 +38,36 @@ struct MediaItem: Identifiable, Hashable, Codable {
     var id: String { path }
 }
 
+/// A list of titles on the site: a genre or studio inside a section, a collection, best-of or announcements.
+struct Listing: Identifiable, Hashable {
+    let title: String
+    /// Site path without the page part, e.g. `films/drama/` or `collections/834-filmy-netflix/`.
+    let path: String
+    /// Whether the site's sort options ("Популярные", "В ожидании"…) apply to it.
+    var isSortable = true
+
+    var id: String { path }
+
+    static let announcements = Listing(title: "Анонсы", path: "announce/", isSortable: false)
+}
+
+/// What the site's top menu offers inside a section.
+struct SectionMenu: Hashable {
+    let genres: [Listing]
+    /// Studio collections the menu shows as logos (Netflix, HBO…).
+    let studios: [Listing]
+}
+
+/// A card on the site's collections page.
+struct MediaCollection: Identifiable, Hashable {
+    let listing: Listing
+    let coverURL: URL?
+    /// Number of titles in it, as the card shows.
+    let count: Int?
+
+    var id: String { listing.id }
+}
+
 struct Page<T> {
     let items: [T]
     let hasMore: Bool
@@ -90,6 +120,8 @@ struct MediaDetails {
     let bookmarkedIn: Set<String>
     /// "Отзывы (N)" on the page; the comments themselves load separately.
     let commentsCount: Int
+    /// The collections in the "Из серии" row, e.g. "Сериалы Amazon".
+    let collections: [Listing]
 
     func info(_ title: String) -> String? {
         info.first { $0.title.hasPrefix(title) }?.value

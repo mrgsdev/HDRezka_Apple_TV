@@ -36,6 +36,59 @@ enum RezkaParser {
         )
     }
 
+    // MARK: Menu & collections
+
+    /// Genres and studio collections per section from the site's top menu, present on every page.
+    static func sectionMenus(in doc: Document) throws -> [CatalogSection: SectionMenu] {
+        var menus: [CatalogSection: SectionMenu] = [:]
+        for item in try doc.select("#topnav-menu > li.b-topnav__item").array() {
+            guard let href = try item.select("a.b-topnav__item-link").first()?.attr("href"),
+                  let path = listingPath(href),
+                  let section = CatalogSection(rawValue: String(path.dropLast())) else { continue }
+            // The "hot" entry on the right is "Лучшие новинки", which the catalog offers as its own sort.
+            let genres = try item.select(".b-topnav__sub ul.left a").array().compactMap { link in
+                try listingPath(link.attr("href")).map { Listing(title: try link.text(), path: $0) }
+            }
+            let studios = try item.select(".b-topnav__sub ul.right li:not(.hot) a").array().compactMap { link in
+                try listingPath(link.attr("href")).flatMap { path in
+                    try link.attr("title").nonEmpty.map { Listing(title: $0, path: path) }
+                }
+            }
+            var seen = Set<String>()
+            menus[section] = SectionMenu(genres: genres.filter { seen.insert($0.path).inserted }, studios: studios)
+        }
+        return menus
+    }
+
+    static func collections(in doc: Document, base: URL) throws -> Page<MediaCollection> {
+        let items = try doc.select(".b-content__collections_item").array().compactMap { element -> MediaCollection? in
+            let href = try element.attr("data-url").nonEmpty ?? element.select("a.title").first()?.attr("href") ?? ""
+            guard let path = listingPath(href) else { return nil }
+            return MediaCollection(
+                listing: Listing(title: try element.select(".title").first()?.text() ?? "", path: path),
+                coverURL: absoluteURL(try element.select("img.cover").first()?.attr("src"), base: base),
+                count: Int(try element.select(".num").first()?.text() ?? "")
+            )
+        }
+        let next = try doc.select(".b-navigation__next").first()
+        return Page(items: items, hasMore: next?.parent()?.tagName() == "a" && !items.isEmpty)
+    }
+
+    /// Links in the details row "Из серии", which point to collections.
+    private static func collectionLinks(in doc: Document) throws -> [Listing] {
+        let row = try doc.select(".b-post__info tr").array().first { try $0.select("td").first()?.text().hasPrefix("Из серии") == true }
+        return try row?.select("a").array().compactMap { link in
+            try listingPath(link.attr("href")).map { Listing(title: try link.text(), path: $0) }
+        } ?? []
+    }
+
+    /// `https://rezka.fi/films/drama/` or `/films/drama/` → `films/drama/`, the form `Listing.path` uses.
+    static func listingPath(_ href: String) -> String? {
+        guard let components = URLComponents(string: href), components.path.count > 1 else { return nil }
+        let path = String(components.path.drop { $0 == "/" })
+        return path.hasSuffix("/") ? path : path + "/"
+    }
+
     // MARK: Continue watching
 
     static func continueWatching(in doc: Document, base: URL) throws -> [MediaItem] {
@@ -139,7 +192,8 @@ enum RezkaParser {
             related: try doc.select(".b-sidelist").first().map { try items(in: $0, base: base) } ?? [],
             bookmarkFolders: bookmarks?.folders,
             bookmarkedIn: bookmarks?.checked ?? [],
-            commentsCount: try Int(doc.select("#comments-list-button em").first()?.text() ?? "") ?? 0
+            commentsCount: try Int(doc.select("#comments-list-button em").first()?.text() ?? "") ?? 0,
+            collections: try collectionLinks(in: doc)
         )
     }
 
