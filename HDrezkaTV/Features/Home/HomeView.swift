@@ -7,6 +7,7 @@ final class HomeModel {
         let title: String
         let items: [MediaItem]
         var id: String { title }
+        var isContinue: Bool { title == HomeModel.continueTitle }
     }
 
     private(set) var shelves: [Shelf] = []
@@ -15,7 +16,7 @@ final class HomeModel {
     /// Bumped per load so a superseded or cancelled load never overwrites a newer result.
     private var generation = 0
 
-    private static let continueTitle = "Продолжить просмотр"
+    nonisolated static let continueTitle = "Продолжить просмотр"
     private static let sources: [(String, CatalogSection?, CatalogFilter)] = [
         ("Новинки", nil, .last),
         ("Популярные фильмы", .films, .popular),
@@ -79,6 +80,19 @@ final class HomeModel {
         }
         isLoading = false
     }
+
+    /// Re-reads only "continue watching", e.g. after the player closed.
+    func refreshContinue() async {
+        guard !shelves.isEmpty, let items = try? await RezkaClient.shared.continueWatching() else { return }
+        setContinue(items)
+    }
+
+    private func setContinue(_ items: [MediaItem]) {
+        shelves.removeAll(where: \.isContinue)
+        if !items.isEmpty {
+            shelves.insert(Shelf(title: Self.continueTitle, items: items), at: 0)
+        }
+    }
 }
 
 struct HomeView: View {
@@ -103,5 +117,8 @@ struct HomeView: View {
             }
         }
         .task { await model.loadIfNeeded() }
+        .onReceive(NotificationCenter.default.publisher(for: .watchHistoryChanged)) { _ in
+            Task { await model.refreshContinue() }
+        }
     }
 }

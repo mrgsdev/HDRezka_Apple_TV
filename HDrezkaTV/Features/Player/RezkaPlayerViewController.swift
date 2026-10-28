@@ -42,6 +42,7 @@ final class RezkaPlayerViewController: AVPlayerViewController {
     private var statusObservation: NSKeyValueObservation?
     private var loadTask: Task<Void, Never>?
     private var subtitleTask: Task<Void, Never>?
+    private var remoteSaveTask: Task<Void, Never>?
 
     private var pendingSeek: Double?
     private var usingFallback = false
@@ -323,7 +324,7 @@ final class RezkaPlayerViewController: AVPlayerViewController {
         if force || Date().timeIntervalSince(lastRemoteSave) > 60 {
             lastRemoteSave = Date()
             let request = request
-            Task {
+            remoteSaveTask = Task {
                 await RezkaClient.shared.saveProgress(
                     postId: request.postId,
                     translatorId: request.translator.id,
@@ -398,6 +399,12 @@ final class RezkaPlayerViewController: AVPlayerViewController {
         guard !isTornDown else { return }
         isTornDown = true
         recordProgress(force: true)
+        // Once the final position reaches the site, let "continue watching" refresh.
+        let save = remoteSaveTask
+        Task {
+            await save?.value
+            NotificationCenter.default.post(name: .watchHistoryChanged, object: nil)
+        }
         loadTask?.cancel()
         subtitleTask?.cancel()
         if let timeObserver { player?.removeTimeObserver(timeObserver) }

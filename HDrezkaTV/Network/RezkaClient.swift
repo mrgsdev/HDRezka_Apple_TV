@@ -320,3 +320,8 @@ final class RezkaClient {
         }.joined(separator: "&")
     }
 }
+
+extension Notification.Name {
+    /// Posted when playback progress may have changed the site's "continue watching" list.
+    static let watchHistoryChanged = Notification.Name("watchHistoryChanged")
+}
