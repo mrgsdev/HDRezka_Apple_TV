@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var isSearchingMirrors = false
     @State private var quality = QualityPreference.current
     @State private var confirmLogout = false
+    @State private var showAbout = false
 
     static let mirrorHint = "Напишите на mirror@hdrezka.org, чтобы узнать актуальное зеркало, и введите его сюда."
 
@@ -60,13 +61,30 @@ struct SettingsView: View {
             }
 
             Section {
-                NavigationLink("О приложении") { AboutView() }
+                Button("О приложении") { showAbout = true }
             }
         }
         .navigationTitle("Настройки")
         .confirmationDialog("Выйти из аккаунта?", isPresented: $confirmLogout) {
             Button("Выйти", role: .destructive) { Task { await auth.logout() } }
         }
+        .alert("REZKA", isPresented: $showAbout) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(aboutText)
+        }
+    }
+
+    private var aboutText: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+        return """
+        Версия \(version) (\(build))
+        Зеркало: \(Mirror.current.host() ?? Mirror.current.absoluteString)
+
+        Неофициальный клиент HDrezka для Apple TV
+        Разработчик: github.com/mrgsdev
+        """
     }
 
     private func applyMirror() {
