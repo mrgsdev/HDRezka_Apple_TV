@@ -91,6 +91,11 @@ struct PosterCard: View {
     /// Shown on a long press; no menu when empty.
     var actions: [CardAction] = []
 
+    @FocusState private var isFocused: Bool
+    /// The site's card for the title, shown once the poster has kept the focus a moment; the screen
+    /// draws it, over every shelf, from where this card reports its bounds.
+    @State private var showsInfo = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             withActions(NavigationLink(value: item) {
@@ -109,7 +114,8 @@ struct PosterCard: View {
                         }
                     }
             }
-            .buttonStyle(.card))
+            .buttonStyle(.card)
+            .focused($isFocused))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title)
@@ -125,6 +131,17 @@ struct PosterCard: View {
             .frame(width: width, alignment: .leading)
         }
         .frame(width: width)
+        .anchorPreference(key: QuickInfoAnchor.Key.self, value: .bounds) { showsInfo ? QuickInfoAnchor(item: item, bounds: $0) : nil }
+        // Like pointing at a poster on the site: a moment's rest on it shows the card, moving on hides it.
+        .task(id: isFocused) {
+            guard isFocused, RezkaParser.idFromPath(item.path) != nil else {
+                withAnimation(.easeOut(duration: 0.15)) { showsInfo = false }
+                return
+            }
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { showsInfo = true }
+        }
     }
 
     @ViewBuilder
@@ -171,6 +188,150 @@ extension MediaKind {
         case .anime: "wand.and.stars"
         case .show: "theatermasks.fill"
         case .unknown: "questionmark"
+        }
+    }
+}
+
+/// Where a poster resting under the focus is, for the screen to draw the site's card beside it.
+struct QuickInfoAnchor {
+    let item: MediaItem
+    let bounds: Anchor<CGRect>
+
+    struct Key: PreferenceKey {
+        static var defaultValue: QuickInfoAnchor? { nil }
+        static func reduce(value: inout QuickInfoAnchor?, nextValue: () -> QuickInfoAnchor?) {
+            value = value ?? nextValue()
+        }
+    }
+}
+
+extension View {
+    /// Draws the site's card beside the poster that has kept the focus a moment: on the poster's right,
+    /// or its left near the right edge of the screen, above every shelf on the page.
+    func quickInfoLayer() -> some View {
+        overlayPreferenceValue(QuickInfoAnchor.Key.self) { anchor in
+            GeometryReader { proxy in
+                if let anchor {
+                    QuickInfoPlacement(anchor: anchor, proxy: proxy)
+                        .id(anchor.item.id)
+                        .transition(.opacity)
+                }
+            }
+            .allowsHitTesting(false)
+            .animation(.easeOut(duration: 0.2), value: anchor?.item.id)
+        }
+    }
+}
+
+/// The card level with the poster's top, kept whole on screen by its own height.
+private struct QuickInfoPlacement: View {
+    let anchor: QuickInfoAnchor
+    let proxy: GeometryProxy
+
+    @State private var height: CGFloat = 520
+
+    var body: some View {
+        let rect = proxy[anchor.bounds]
+        let onLeft = rect.midX > proxy.size.width * 0.57
+        QuickInfoView(item: anchor.item)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            .offset(x: onLeft ? rect.minX - 36 - QuickInfoView.width : rect.maxX + 36,
+                    y: max(min(rect.minY - 10, proxy.size.height - height - 40), 40))
+    }
+}
+
+/// The site's hover card for a title: its rating, the start of the description, genres, people and
+/// IMDb, loaded once per title while the app runs.
+struct QuickInfoView: View {
+    let item: MediaItem
+
+    static let width: CGFloat = 640
+
+    @State private var info: QuickInfo?
+    @State private var failed = false
+
+    @MainActor private static var cache: [String: QuickInfo] = [:]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if let info {
+                content(info)
+            } else if failed {
+                Text("Не удалось загрузить информацию.")
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 16) {
+                    ProgressView()
+                    Text("Загружаем…").foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
+            }
+        }
+        .padding(32)
+        .frame(width: Self.width, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 30))
+        .overlay(RoundedRectangle(cornerRadius: 30).strokeBorder(.white.opacity(0.12)))
+        .shadow(color: .black.opacity(0.4), radius: 30, y: 12)
+        .task { await load() }
+    }
+
+    @ViewBuilder
+    private func content(_ info: QuickInfo) -> some View {
+        Text(info.title.isEmpty ? item.title : info.title)
+            .font(.headline)
+            .fixedSize(horizontal: false, vertical: true)
+        if let rating = info.rating {
+            HStack(spacing: 10) {
+                if let label = info.ratingLabel {
+                    Text(verbatim: label + ":").foregroundStyle(.secondary)
+                }
+                Text(verbatim: rating.value).bold()
+                Text(verbatim: "(\(rating.votes))").foregroundStyle(.secondary)
+            }
+            .font(.callout)
+        }
+        if !info.description.isEmpty {
+            Text(info.description)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(6)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        ForEach(info.rows, id: \.self) { row in
+            (Text(verbatim: row.label + ": ").foregroundStyle(.secondary) + Text(verbatim: row.values.joined(separator: ", ")))
+                .font(.caption)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        if info.imdb != nil || info.kinopoisk != nil {
+            HStack(spacing: 30) {
+                if let imdb = info.imdb { score("IMDb", imdb) }
+                if let kinopoisk = info.kinopoisk { score("Кинопоиск", kinopoisk) }
+            }
+            .font(.caption)
+        }
+    }
+
+    private func score(_ name: String, _ score: QuickInfo.Score) -> some View {
+        HStack(spacing: 8) {
+            Text(verbatim: name + ":").foregroundStyle(.secondary)
+            Text(verbatim: score.value).bold()
+            Text(verbatim: "(\(score.votes))").foregroundStyle(.secondary)
+        }
+    }
+
+    private func load() async {
+        guard let postId = RezkaParser.idFromPath(item.path) else { failed = true; return }
+        if let cached = Self.cache[postId] {
+            info = cached
+            return
+        }
+        do {
+            let loaded = try await RezkaClient.shared.quickInfo(postId: postId)
+            Self.cache[postId] = loaded
+            info = loaded
+        } catch {
+            if !error.isCancellation { failed = true }
         }
     }
 }
@@ -308,9 +469,10 @@ struct PagedFooter: View {
 
 extension View {
     func mediaDestinations() -> some View {
-        navigationDestination(for: MediaItem.self) { DetailsView(item: $0) }
-            .navigationDestination(for: Listing.self) { ListingView(listing: $0) }
-            .navigationDestination(for: PersonLink.self) { PersonView(person: $0) }
+        quickInfoLayer()
+            .navigationDestination(for: MediaItem.self) { DetailsView(item: $0).quickInfoLayer() }
+            .navigationDestination(for: Listing.self) { ListingView(listing: $0).quickInfoLayer() }
+            .navigationDestination(for: PersonLink.self) { PersonView(person: $0).quickInfoLayer() }
     }
 }
 
