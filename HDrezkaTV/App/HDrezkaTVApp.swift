@@ -41,6 +41,9 @@ struct MainTabView: View {
             Tab("Главная", systemImage: "house") {
                 NavigationStack { HomeView().mediaDestinations() }
             }
+            Tab(role: .search) {
+                NavigationStack { SearchView().mediaDestinations() }
+            }
             ForEach(CatalogSection.allCases) { section in
                 Tab(section.title, systemImage: section.systemImage) {
                     NavigationStack { CatalogView(section: section).mediaDestinations() }
@@ -51,9 +54,6 @@ struct MainTabView: View {
             }
             Tab("Закладки", systemImage: "bookmark") {
                 NavigationStack { BookmarksView().mediaDestinations() }
-            }
-            Tab(role: .search) {
-                NavigationStack { SearchView().mediaDestinations() }
             }
             Tab("Настройки", systemImage: "gearshape") {
                 NavigationStack { SettingsView() }
