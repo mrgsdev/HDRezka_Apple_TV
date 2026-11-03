@@ -49,8 +49,10 @@ struct AchievementsView: View {
         } label: {
             VStack(spacing: 16) {
                 MedalView(medal: achievement.medal, size: 150, isEarned: tracker.earned[achievement.id] != nil)
+                // Small enough for «Коллекционер» on one line: at the headline size it broke mid-word
+                // with its first letter cut off.
                 Text(achievement.title)
-                    .font(.headline)
+                    .font(.system(size: 28, weight: .semibold))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                 AchievementStatus(achievement: achievement)
