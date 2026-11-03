@@ -15,6 +15,7 @@
   <img alt="SwiftUI" src="https://img.shields.io/badge/UI-SwiftUI%20%2B%20AVKit-0A84FF">
   <img alt="Русский и English" src="https://img.shields.io/badge/%D1%8F%D0%B7%D1%8B%D0%BA-RU%20%7C%20EN-555555">
   <img alt="Xcode 26+" src="https://img.shields.io/badge/Xcode-26%2B-147EFB?logo=xcode&logoColor=white">
+  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-3DA639">
 </p>
 
 <p align="center">
@@ -41,7 +42,7 @@ Apple TV с процентом загрузки, вход с телефона п
 - [Чего нет на сайте](#чего-нет-на-сайте)
 - [Установка](#установка)
 - [Для разработчиков](#для-разработчиков)
-- [Благодарности](#благодарности) · [Отказ от ответственности](#отказ-от-ответственности)
+- [Благодарности](#благодарности) · [Лицензия](#лицензия) · [Отказ от ответственности](#отказ-от-ответственности)
 
 ---
 
@@ -261,6 +262,10 @@ HDrezkaTV/
 Разбор API и идеи взяты из открытых проектов
 [rezka-payer](https://github.com/Agnidia/rezka-payer) и
 [hdrezka-swiftui](https://github.com/voidboost/hdrezka-swiftui) (MIT).
+
+## Лицензия
+
+[MIT](LICENSE). Приложение использует открытую библиотеку [SwiftSoup](https://github.com/scinfu/SwiftSoup), она тоже под MIT.
 
 ## Отказ от ответственности
 
