@@ -57,6 +57,9 @@ struct MainTabView: View {
             Tab("Закладки", systemImage: "bookmark") {
                 NavigationStack { BookmarksView().mediaDestinations() }
             }
+            Tab("Итоги", systemImage: "chart.bar.fill") {
+                NavigationStack { StatsView().mediaDestinations() }
+            }
             Tab("Настройки", systemImage: "gearshape") {
                 NavigationStack { SettingsView() }
             }
