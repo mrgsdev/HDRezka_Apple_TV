@@ -49,8 +49,11 @@ struct SiteRatingRow: View {
             }
     }
 
-    /// Russian has three plural forms; the number is formatted separately, with grouping.
+    /// Russian has three plural forms and English two; the number is formatted separately, with grouping.
     private static func votesWord(_ count: Int) -> String {
+        guard Bundle.main.preferredLocalizations.first == "ru" else {
+            return count == 1 ? String(localized: "голос") : String(localized: "голосов")
+        }
         let tens = count % 100, ones = count % 10
         if (11...14).contains(tens) { return String(localized: "голосов") }
         switch ones {

@@ -167,7 +167,7 @@ struct DetailsView: View {
                 }
 
                 if !details.related.isEmpty {
-                    MediaRow(title: "Смотрите также", items: details.related)
+                    MediaRow(title: String(localized: "Смотрите также"), items: details.related)
                 }
 
                 if details.commentsCount > 0 || !model.comments.isEmpty, !ParentalControl.shared.isOn {
@@ -362,7 +362,7 @@ struct DetailsView: View {
                         ForEach(details.translators) { translatorButton($0) }
                     }
                 } label: {
-                    Label(model.translator?.name ?? "Озвучка", systemImage: model.translator?.isPremium == true ? "crown.fill" : "waveform")
+                    Label(model.translator?.name ?? String(localized: "Озвучка"), systemImage: model.translator?.isPremium == true ? "crown.fill" : "waveform")
                         .lineLimit(1)
                 }
             } else if let translator = model.translator {
@@ -612,7 +612,7 @@ private struct ScheduleRow: View {
                     .font(.headline)
                     .frame(width: 170, alignment: .leading)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(episode.title.isEmpty ? "Без названия" : episode.title)
+                    Text(episode.title.isEmpty ? String(localized: "Без названия") : episode.title)
                         .lineLimit(1)
                     if let original = episode.originalTitle {
                         Text(original)
@@ -749,7 +749,7 @@ private struct CommentCard: View {
     private var text: AttributedString {
         var result = AttributedString()
         for part in comment.parts {
-            var piece = AttributedString(part.isSpoiler && !isRevealed ? "[спойлер]" : part.text)
+            var piece = AttributedString(part.isSpoiler && !isRevealed ? String(localized: "[спойлер]") : part.text)
             if part.isSpoiler { piece.foregroundColor = .orange }
             result += piece
         }

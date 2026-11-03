@@ -9,7 +9,7 @@ struct SearchView: View {
             VStack(alignment: .leading, spacing: 40) {
                 MediaGrid(items: loader.items) { await loader.loadMore() }
                 if loader.key != nil {
-                    PagedFooter(loader: loader, emptyText: "По запросу «\(loader.key ?? "")» ничего не найдено")
+                    PagedFooter(loader: loader, emptyText: String(localized: "По запросу «\(loader.key ?? "")» ничего не найдено"))
                 }
             }
             .padding(.horizontal, 80)

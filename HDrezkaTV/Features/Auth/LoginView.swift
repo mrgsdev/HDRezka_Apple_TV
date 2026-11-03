@@ -108,7 +108,7 @@ struct LoginView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(phoneLogin.url?.absoluteString ?? "Запускаем…")
+                Text(phoneLogin.url?.absoluteString ?? String(localized: "Запускаем…"))
                     .font(.system(size: 26, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -126,7 +126,7 @@ struct LoginView: View {
             errorText = nil
             auth.refresh()
         } else {
-            errorText = "Некорректный адрес зеркала"
+            errorText = String(localized: "Некорректный адрес зеркала")
         }
     }
 

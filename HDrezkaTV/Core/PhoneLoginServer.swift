@@ -110,7 +110,7 @@ final class PhoneLoginServer: @unchecked Sendable {
 
     private func route(_ request: Request, on connection: NWConnection) {
         guard request.path == "/\(token)" else {
-            return send(Self.page(Self.messageCard(title: "Ссылка устарела", text: "Откройте адрес, который сейчас показан на экране Apple TV.")),
+            return send(Self.page(Self.messageCard(title: String(localized: "Ссылка устарела"), text: String(localized: "Откройте адрес, который сейчас показан на экране Apple TV."))),
                         status: "404 Not Found", on: connection)
         }
         guard request.method == "POST" else {
@@ -121,13 +121,13 @@ final class PhoneLoginServer: @unchecked Sendable {
         let email = form["email"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let password = form["password"] ?? ""
         guard !email.isEmpty, !password.isEmpty else {
-            return send(Self.page(formHTML(error: "Введите email и пароль.")), on: connection)
+            return send(Self.page(formHTML(error: String(localized: "Введите email и пароль."))), on: connection)
         }
 
         Task { @MainActor in
             let error = await self.onSubmit(email, password)
             let html = error.map { Self.page(self.formHTML(error: $0, email: email)) }
-                ?? Self.page(Self.messageCard(title: "Готово ✓", text: "Вход выполнен, на телевизоре уже открывается главная. Эту страницу можно закрыть."))
+                ?? Self.page(Self.messageCard(title: String(localized: "Готово ✓"), text: String(localized: "Вход выполнен, на телевизоре уже открывается главная. Эту страницу можно закрыть.")))
             self.queue.async { self.send(html, on: connection) }
         }
     }
@@ -152,17 +152,22 @@ final class PhoneLoginServer: @unchecked Sendable {
     // MARK: Pages
 
     private func formHTML(error: String?, email: String = "") -> String {
-        let host = Self.escape(Mirror.current.host() ?? "HDrezka")
+        let site = Mirror.current.host() ?? "HDrezka"
         let errorBlock = error.map { "<div class=\"err\">\(Self.escape($0))</div>" } ?? ""
+        let waiting = Self.escape(String(localized: "Входим, подождите…"))
+        let title = Self.escape(String(localized: "Вход на Apple TV"))
+        let note = Self.escape(String(localized: "Логин и пароль от аккаунта HDrezka уйдут на телевизор по локальной сети, а с него на сайт \(site)."))
+        let passwordLabel = Self.escape(String(localized: "Пароль"))
+        let submit = Self.escape(String(localized: "Войти на телевизоре"))
         return """
-        <form method="post" action="/\(token)" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Входим, подождите…';">
-          <h1>Вход на Apple TV</h1>
-          <p>Логин и пароль от аккаунта HDrezka уйдут на телевизор по локальной сети, а с него на сайт \(host).</p>
+        <form method="post" action="/\(token)" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='\(waiting)';">
+          <h1>\(title)</h1>
+          <p>\(note)</p>
           <label for="e">Email</label>
           <input id="e" name="email" type="email" autocomplete="username" autocapitalize="off" value="\(Self.escape(email))" required autofocus>
-          <label for="p">Пароль</label>
+          <label for="p">\(passwordLabel)</label>
           <input id="p" name="password" type="password" autocomplete="current-password" required>
-          <button type="submit">Войти на телевизоре</button>
+          <button type="submit">\(submit)</button>
           \(errorBlock)
         </form>
         """
@@ -173,11 +178,13 @@ final class PhoneLoginServer: @unchecked Sendable {
     }
 
     private static func page(_ content: String) -> String {
-        """
+        let language = Bundle.main.preferredLocalizations.first ?? "ru"
+        let title = escape(String(localized: "HDrezka TV: вход"))
+        return """
         <!doctype html>
-        <html lang="ru"><head><meta charset="utf-8">
+        <html lang="\(language)"><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>HDrezka TV: вход</title>
+        <title>\(title)</title>
         <style>
           :root { color-scheme: dark; }
           * { box-sizing: border-box; }

@@ -138,7 +138,7 @@ struct BookmarksView: View {
 
                 MediaGrid(items: model.loader.items, onReachEnd: { await model.loader.loadMore() }, actions: actions(for:))
                 if model.selectedFolderId != nil {
-                    PagedFooter(loader: model.loader, emptyText: "В этой папке пока пусто. Добавляйте сюда фильмы и сериалы кнопкой «В закладки» в их карточке.")
+                    PagedFooter(loader: model.loader, emptyText: String(localized: "В этой папке пока пусто. Добавляйте сюда фильмы и сериалы кнопкой «В закладки» в их карточке."))
                 }
             }
             .padding(.horizontal, 80)
@@ -152,7 +152,7 @@ struct BookmarksView: View {
                     ErrorStateView(error: error) { await model.loadFolders() }
                 } else {
                     VStack(spacing: 10) {
-                        EmptyStateView(text: "Закладок пока нет. Создайте папку и добавляйте в неё фильмы и сериалы кнопкой «В закладки» в их карточке.",
+                        EmptyStateView(text: String(localized: "Закладок пока нет. Создайте папку и добавляйте в неё фильмы и сериалы кнопкой «В закладки» в их карточке."),
                                        icon: "bookmark")
                         Button("Создать папку") { startEditing(.create) }
                     }

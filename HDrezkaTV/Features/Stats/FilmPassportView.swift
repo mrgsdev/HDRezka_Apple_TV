@@ -15,7 +15,7 @@ struct FilmPassportView: View {
                 cover(stamps)
                     .focusPanel()
                 if stamps.isEmpty {
-                    EmptyStateView(text: "Паспорт пока пуст. Посмотрите что-нибудь от десяти минут, и первая страна поставит свой штамп.", icon: "globe")
+                    EmptyStateView(text: String(localized: "Паспорт пока пуст. Посмотрите что-нибудь от десяти минут, и первая страна поставит свой штамп."), icon: "globe")
                         .frame(maxWidth: .infinity)
                 } else {
                     section("Штампы", note: "Штамп ставится с первого тайтла страны, золотая виза с пятого, вид на жительство с двадцатого.") {

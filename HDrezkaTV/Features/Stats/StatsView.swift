@@ -47,7 +47,7 @@ struct StatsView: View {
                     goal
                 }
                 if summary.total < 60 {
-                    EmptyStateView(text: "Здесь появятся итоги, когда вы что-нибудь посмотрите в REZKA на этом Apple TV.", icon: "chart.bar")
+                    EmptyStateView(text: String(localized: "Здесь появятся итоги, когда вы что-нибудь посмотрите в REZKA на этом Apple TV."), icon: "chart.bar")
                         .frame(maxWidth: .infinity)
                         .focusPanel()
                 } else {
@@ -119,9 +119,9 @@ struct StatsView: View {
     private var links: some View {
         HStack(spacing: 40) {
             linkCard(.passport, symbol: "globe.europe.africa.fill", title: "Кинопаспорт",
-                     detail: "Стран в паспорте: \(FilmPassport.stamps(from: stats).count)")
+                     detail: String(localized: "Стран в паспорте: \(FilmPassport.stamps(from: stats).count)"))
             linkCard(.achievements, symbol: "medal.fill", title: "Достижения",
-                     detail: "Получено \(tracker.earned.count) из \(Achievement.all.count)")
+                     detail: String(localized: "Получено \(tracker.earned.count) из \(Achievement.all.count)"))
         }
     }
 

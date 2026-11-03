@@ -221,10 +221,10 @@ final class RezkaPlayerViewController: AVPlayerViewController {
                     self?.switchQuality(option)
                 }
             }
-            items.append(UIMenu(title: "Качество", image: UIImage(systemName: "slider.horizontal.3"), options: .singleSelection, children: qualities))
+            items.append(UIMenu(title: String(localized: "Качество"), image: UIImage(systemName: "slider.horizontal.3"), options: .singleSelection, children: qualities))
 
             if !stream.subtitles.isEmpty {
-                var tracks = [UIAction(title: "Выключены", state: subtitle == nil ? .on : .off) { [weak self] _ in
+                var tracks = [UIAction(title: String(localized: "Выключены"), state: subtitle == nil ? .on : .off) { [weak self] _ in
                     self?.selectSubtitle(nil)
                 }]
                 tracks += stream.subtitles.map { track in
@@ -232,7 +232,7 @@ final class RezkaPlayerViewController: AVPlayerViewController {
                         self?.selectSubtitle(track)
                     }
                 }
-                items.append(UIMenu(title: "Субтитры", image: UIImage(systemName: "captions.bubble"), options: .singleSelection, children: tracks))
+                items.append(UIMenu(title: String(localized: "Субтитры"), image: UIImage(systemName: "captions.bubble"), options: .singleSelection, children: tracks))
             }
         }
 
@@ -241,10 +241,10 @@ final class RezkaPlayerViewController: AVPlayerViewController {
                 self?.setSpeed(rate)
             }
         }
-        items.append(UIMenu(title: "Скорость", image: UIImage(systemName: "gauge.with.dots.needle.67percent"), options: .singleSelection, children: speeds))
+        items.append(UIMenu(title: String(localized: "Скорость"), image: UIImage(systemName: "gauge.with.dots.needle.67percent"), options: .singleSelection, children: speeds))
 
         if nextEpisode() != nil {
-            items.append(UIAction(title: "Следующая серия", image: UIImage(systemName: "forward.end")) { [weak self] _ in
+            items.append(UIAction(title: String(localized: "Следующая серия"), image: UIImage(systemName: "forward.end")) { [weak self] _ in
                 self?.playNext()
             })
         }
@@ -268,7 +268,7 @@ final class RezkaPlayerViewController: AVPlayerViewController {
     }
 
     private static func speedLabel(_ rate: Float) -> String {
-        rate == 1 ? "Обычная" : rate.formatted(.number.locale(Locale(identifier: "ru_RU"))) + "×"
+        rate == 1 ? String(localized: "Обычная") : rate.formatted() + "×"
     }
 
     // MARK: Subtitles
@@ -446,7 +446,7 @@ final class RezkaPlayerViewController: AVPlayerViewController {
         guard let seasonId = request.seasonId, let episodeId = request.episodeId else { return nil }
         let season = request.seasons.first { $0.id == seasonId }
         let episode = season?.episodes.first { $0.id == episodeId }
-        return [season?.title ?? "Сезон \(seasonId)", episode?.title ?? "Серия \(episodeId)", request.translator.name].joined(separator: " · ")
+        return [season?.title ?? String(localized: "Сезон \(seasonId)"), episode?.title ?? String(localized: "Серия \(episodeId)"), request.translator.name].joined(separator: " · ")
     }
 
     private func metadata() -> [AVMetadataItem] {
@@ -489,8 +489,8 @@ final class RezkaPlayerViewController: AVPlayerViewController {
     }
 
     private func showError(_ error: Error) {
-        let alert = UIAlertController(title: "Не удалось воспроизвести", message: error.localizedDescription, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Закрыть", style: .cancel) { [weak self] _ in
+        let alert = UIAlertController(title: String(localized: "Не удалось воспроизвести"), message: error.localizedDescription, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: String(localized: "Закрыть"), style: .cancel) { [weak self] _ in
             self?.dismiss(animated: true)
         })
         present(alert, animated: true)

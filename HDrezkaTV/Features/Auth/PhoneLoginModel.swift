@@ -17,7 +17,7 @@ final class PhoneLoginModel {
         guard server == nil else { return }
         let server = PhoneLoginServer { [weak self] email, password in
             // signIn returns nil on success, so `self?.signIn(...) ?? message` would turn success into an error.
-            guard let self else { return "Экран входа на телевизоре уже закрыт." }
+            guard let self else { return String(localized: "Экран входа на телевизоре уже закрыт.") }
             return await self.signIn(email: email, password: password)
         }
         server.onReady = { [weak self, weak server] port in
@@ -38,7 +38,7 @@ final class PhoneLoginModel {
     }
 
     private func signIn(email: String, password: String) async -> String? {
-        status = "Входим с телефона…"
+        status = String(localized: "Входим с телефона…")
         do {
             try await AuthSession.shared.login(email: email, password: password)
             status = nil

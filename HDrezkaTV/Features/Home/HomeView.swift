@@ -33,15 +33,15 @@ final class HomeModel {
         }
     }
 
-    nonisolated static let continueTitle = "Продолжить просмотр"
+    nonisolated static let continueTitle = String(localized: "Продолжить просмотр")
     private static let sources: [(String, Source)] = [
-        ("Новые фильмы, сериалы, мультфильмы и аниме", .newest),
-        ("Новинки", .catalog(nil, .last)),
-        ("Популярные фильмы", .catalog(.films, .popular)),
-        ("Популярные сериалы", .catalog(.series, .popular)),
-        ("Сейчас смотрят", .catalog(.films, .watching)),
-        ("Мультфильмы", .catalog(.cartoons, .popular)),
-        ("Аниме", .catalog(.animation, .popular)),
+        (String(localized: "Новые фильмы, сериалы, мультфильмы и аниме"), .newest),
+        (String(localized: "Новинки"), .catalog(nil, .last)),
+        (String(localized: "Популярные фильмы"), .catalog(.films, .popular)),
+        (String(localized: "Популярные сериалы"), .catalog(.series, .popular)),
+        (String(localized: "Сейчас смотрят"), .catalog(.films, .watching)),
+        (String(localized: "Мультфильмы"), .catalog(.cartoons, .popular)),
+        (String(localized: "Аниме"), .catalog(.animation, .popular)),
     ]
 
     func loadIfNeeded() async {
@@ -139,7 +139,7 @@ struct HomeView: View {
                 ForEach(model.shelves) { shelf in
                     if shelf.isContinue {
                         MediaRow(title: shelf.title, items: shelf.items) { item in
-                            [CardAction(title: "Убрать из «Продолжить просмотр»", systemImage: "trash", isDestructive: true) {
+                            [CardAction(title: String(localized: "Убрать из «Продолжить просмотр»"), systemImage: "trash", isDestructive: true) {
                                 Task { await model.removeFromContinue(item) }
                             }]
                         }

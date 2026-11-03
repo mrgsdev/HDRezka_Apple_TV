@@ -9,7 +9,7 @@ struct CatalogView: View {
         var title: String {
             switch self {
             case let .filter(filter): filter.title
-            case .best: "Лучшие"
+            case .best: String(localized: "Лучшие")
             }
         }
     }
@@ -59,7 +59,7 @@ struct CatalogView: View {
                 .focusSection()
 
                 MediaGrid(items: loader.items) { await loader.loadMore() }
-                PagedFooter(loader: loader, emptyText: "Здесь пока ничего нет. Попробуйте другую сортировку.")
+                PagedFooter(loader: loader, emptyText: String(localized: "Здесь пока ничего нет. Попробуйте другую сортировку."))
             }
             .padding(.horizontal, 80)
             .padding(.vertical, 40)
@@ -88,7 +88,7 @@ struct CatalogView: View {
             Button {
                 genre = nil
             } label: {
-                choice("Все жанры", isOn: genre == nil)
+                choice(String(localized: "Все жанры"), isOn: genre == nil)
             }
             Section("Жанры") {
                 ForEach(menu.genres) { item in
@@ -111,7 +111,7 @@ struct CatalogView: View {
                 }
             }
         } label: {
-            Label(genre?.title ?? "Все жанры", systemImage: "line.3.horizontal.decrease.circle")
+            Label(genre?.title ?? String(localized: "Все жанры"), systemImage: "line.3.horizontal.decrease.circle")
                 .lineLimit(1)
         }
     }
@@ -121,7 +121,7 @@ struct CatalogView: View {
             Button {
                 bestYear = nil
             } label: {
-                choice("За всё время", isOn: bestYear == nil)
+                choice(String(localized: "За всё время"), isOn: bestYear == nil)
             }
             ForEach(Self.years, id: \.self) { year in
                 Button {
@@ -131,7 +131,7 @@ struct CatalogView: View {
                 }
             }
         } label: {
-            Label(bestYear.map(String.init) ?? "За всё время", systemImage: "calendar")
+            Label(bestYear.map(String.init) ?? String(localized: "За всё время"), systemImage: "calendar")
                 .lineLimit(1)
         }
     }
@@ -168,7 +168,7 @@ struct ListingView: View {
                 }
 
                 MediaGrid(items: loader.items) { await loader.loadMore() }
-                PagedFooter(loader: loader, emptyText: listing.isSortable ? "Здесь пока ничего нет. Попробуйте другую сортировку." : "Здесь пока ничего нет")
+                PagedFooter(loader: loader, emptyText: listing.isSortable ? String(localized: "Здесь пока ничего нет. Попробуйте другую сортировку.") : "Здесь пока ничего нет")
             }
             .padding(.horizontal, 80)
             .padding(.vertical, 40)

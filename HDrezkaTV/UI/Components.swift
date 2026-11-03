@@ -306,7 +306,7 @@ struct QuickInfoView: View {
         if info.imdb != nil || info.kinopoisk != nil {
             HStack(spacing: 30) {
                 if let imdb = info.imdb { score("IMDb", imdb) }
-                if let kinopoisk = info.kinopoisk { score("Кинопоиск", kinopoisk) }
+                if let kinopoisk = info.kinopoisk { score(String(localized: "Кинопоиск"), kinopoisk) }
             }
             .font(.caption)
         }
@@ -451,7 +451,7 @@ struct EmptyStateView: View {
 /// Footer for paged grids: spinner, error with retry, or empty state.
 struct PagedFooter: View {
     let loader: PagedLoader
-    var emptyText = "Ничего не найдено"
+    var emptyText = String(localized: "Ничего не найдено")
 
     var body: some View {
         Group {
