@@ -96,6 +96,7 @@ struct PosterCard: View {
             withActions(NavigationLink(value: item) {
                 PosterImage(url: item.posterURL)
                     .frame(width: width, height: width * 1.5)
+                    .overlay(alignment: .topTrailing) { KindBadge(kind: item.kind) }
                     .overlay(alignment: .bottomLeading) {
                         if let badge = item.badge {
                             Text(badge)
@@ -138,6 +139,38 @@ struct PosterCard: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// «Фильм», «Сериал»… in a poster's top corner, as the site marks its posters.
+struct KindBadge: View {
+    let kind: MediaKind
+
+    var body: some View {
+        if let title = kind.title {
+            HStack(spacing: 6) {
+                Text(title)
+                Image(systemName: kind.symbol)
+            }
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.accentColor, in: UnevenRoundedRectangle(bottomLeadingRadius: 12))
+        }
+    }
+}
+
+extension MediaKind {
+    var symbol: String {
+        switch self {
+        case .film: "video.fill"
+        case .series: "tv.fill"
+        case .cartoon: "sparkles.tv.fill"
+        case .anime: "wand.and.stars"
+        case .show: "theatermasks.fill"
+        case .unknown: "questionmark"
         }
     }
 }
