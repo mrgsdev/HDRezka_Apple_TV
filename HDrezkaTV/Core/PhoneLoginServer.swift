@@ -127,7 +127,7 @@ final class PhoneLoginServer: @unchecked Sendable {
         Task { @MainActor in
             let error = await self.onSubmit(email, password)
             let html = error.map { Self.page(self.formHTML(error: $0, email: email)) }
-                ?? Self.page(Self.messageCard(title: "Готово ✓", text: "Вход выполнен — на телевизоре уже открывается главная. Эту страницу можно закрыть."))
+                ?? Self.page(Self.messageCard(title: "Готово ✓", text: "Вход выполнен, на телевизоре уже открывается главная. Эту страницу можно закрыть."))
             self.queue.async { self.send(html, on: connection) }
         }
     }
@@ -157,7 +157,7 @@ final class PhoneLoginServer: @unchecked Sendable {
         return """
         <form method="post" action="/\(token)" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Входим, подождите…';">
           <h1>Вход на Apple TV</h1>
-          <p>Логин и пароль от аккаунта HDrezka уйдут на телевизор по локальной сети, а с него — на сайт \(host).</p>
+          <p>Логин и пароль от аккаунта HDrezka уйдут на телевизор по локальной сети, а с него на сайт \(host).</p>
           <label for="e">Email</label>
           <input id="e" name="email" type="email" autocomplete="username" autocapitalize="off" value="\(Self.escape(email))" required autofocus>
           <label for="p">Пароль</label>
@@ -177,7 +177,7 @@ final class PhoneLoginServer: @unchecked Sendable {
         <!doctype html>
         <html lang="ru"><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>HDrezka TV — вход</title>
+        <title>HDrezka TV: вход</title>
         <style>
           :root { color-scheme: dark; }
           * { box-sizing: border-box; }

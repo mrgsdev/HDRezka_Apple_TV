@@ -724,7 +724,7 @@ private struct CommentCard: View {
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
                 if comment.hasSpoiler {
-                    Text(isRevealed ? "Нажмите, чтобы скрыть спойлер" : "Спойлер скрыт — нажмите, чтобы показать")
+                    Text(isRevealed ? "Нажмите, чтобы скрыть спойлер" : "Спойлер скрыт. Нажмите, чтобы показать.")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }

@@ -59,7 +59,7 @@ struct CatalogView: View {
                 .focusSection()
 
                 MediaGrid(items: loader.items) { await loader.loadMore() }
-                PagedFooter(loader: loader, emptyText: "Здесь пока ничего нет — попробуйте другую сортировку")
+                PagedFooter(loader: loader, emptyText: "Здесь пока ничего нет. Попробуйте другую сортировку.")
             }
             .padding(.horizontal, 80)
             .padding(.vertical, 40)
@@ -168,7 +168,7 @@ struct ListingView: View {
                 }
 
                 MediaGrid(items: loader.items) { await loader.loadMore() }
-                PagedFooter(loader: loader, emptyText: listing.isSortable ? "Здесь пока ничего нет — попробуйте другую сортировку" : "Здесь пока ничего нет")
+                PagedFooter(loader: loader, emptyText: listing.isSortable ? "Здесь пока ничего нет. Попробуйте другую сортировку." : "Здесь пока ничего нет")
             }
             .padding(.horizontal, 80)
             .padding(.vertical, 40)
