@@ -88,11 +88,15 @@ struct StatsView: View {
 
     private var header: some View {
         HStack(spacing: 30) {
-            Picker("Период", selection: $span) {
-                ForEach(Span.allCases, id: \.self) { Text($0.title).tag($0) }
+            // A menu, not segments: the remote's left from a segmented control never reaches the side menu.
+            Menu {
+                Picker("Период", selection: $span) {
+                    ForEach(Span.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+            } label: {
+                Label(span.title, systemImage: "calendar")
+                    .fixedSize()
             }
-            .pickerStyle(.segmented)
-            .fixedSize()
 
             if span != .all {
                 HStack(spacing: 16) {
