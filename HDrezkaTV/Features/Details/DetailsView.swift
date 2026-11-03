@@ -143,7 +143,7 @@ struct DetailsView: View {
                     MediaRow(title: "Смотрите также", items: details.related)
                 }
 
-                if details.commentsCount > 0 || !model.comments.isEmpty {
+                if details.commentsCount > 0 || !model.comments.isEmpty, !ParentalControl.shared.isOn {
                     comments(details)
                 }
             }
@@ -153,7 +153,7 @@ struct DetailsView: View {
 
     /// True once the main play button exists (for series it waits for the episode list).
     private var isPlayReady: Bool {
-        guard let details = model.details, details.upcomingStatus == nil else { return false }
+        guard let details = model.details, details.upcomingStatus == nil, model.isAllowed else { return false }
         return !details.isSeries || model.resumeEpisode(progress: progress) != nil
     }
 
@@ -193,7 +193,14 @@ struct DetailsView: View {
     @ViewBuilder
     private func actions(_ details: MediaDetails) -> some View {
         HStack(spacing: 30) {
-            if details.upcomingStatus != nil {
+            if !model.isAllowed {
+                Label("Недоступно в детском режиме", systemImage: "lock.fill")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 30)
+                    .padding(.vertical, 16)
+                    .background(Brand.panel, in: Capsule())
+            } else if details.upcomingStatus != nil {
                 upcoming
             } else if details.isSeries {
                 if let target = model.resumeEpisode(progress: progress) {

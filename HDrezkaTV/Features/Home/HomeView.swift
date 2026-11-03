@@ -157,6 +157,8 @@ struct HomeView: View {
                 } else {
                     ProgressView()
                 }
+            } else if ParentalControl.shared.isOn, !model.shelves.contains(where: { $0.items.contains(where: ParentalControl.shared.allows) }) {
+                KidModeEmptyView()
             }
         }
         .task { await model.loadIfNeeded() }

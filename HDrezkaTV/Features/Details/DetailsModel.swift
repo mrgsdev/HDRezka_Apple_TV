@@ -62,6 +62,7 @@ final class DetailsModel {
             bookmarkedIn = details.bookmarkedIn
             watchedEpisodes = Set(details.schedule.flatMap(\.episodes).filter(\.isWatched).map(\.id))
             state = .loaded(details)
+            AgeBook.remember(details, path: item.path)
             AchievementTracker.shared.noteDetails(details)
 
             if details.isSeries, let chosen {
@@ -201,8 +202,20 @@ final class DetailsModel {
         return (all[index], last)
     }
 
+    var kind: MediaKind {
+        item.kind == .unknown ? (details?.isSeries == true ? .series : .film) : item.kind
+    }
+
+    var isAllowed: Bool {
+        details.map { ParentalControl.shared.allows($0, kind: kind) } ?? true
+    }
+
     func play(episode: Episode? = nil, from position: Double? = nil) {
         guard let details, let translator else { return }
+        guard isAllowed else {
+            actionError = String(localized: "Этот тайтл недоступен в детском режиме.")
+            return
+        }
         PlayerPresenter.present(PlaybackRequest(
             postId: details.postId,
             title: details.title,
@@ -214,7 +227,7 @@ final class DetailsModel {
             episodeId: episode?.id,
             startPosition: position,
             genres: details.info("Жанр")?.components(separatedBy: ", "),
-            kind: item.kind == .unknown ? (details.isSeries ? .series : .film) : item.kind,
+            kind: kind,
             path: details.path,
             countries: details.countries,
             year: details.year

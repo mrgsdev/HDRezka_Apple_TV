@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var quality = QualityPreference.current
     @State private var confirmLogout = false
     @State private var showAbout = false
+    @State private var parentalSheet: ParentalSheet.Mode?
 
     static let mirrorHint = "Напишите на mirror@hdrezka.org, чтобы узнать актуальное зеркало, и введите его сюда."
 
@@ -60,11 +61,16 @@ struct SettingsView: View {
                 .onChange(of: quality) { _, value in QualityPreference.current = value }
             }
 
+            ParentalSection(sheet: $parentalSheet)
+
             Section {
                 Button("О приложении") { showAbout = true }
             }
         }
         .navigationTitle("Настройки")
+        .fullScreenCover(item: $parentalSheet) { mode in
+            ParentalSheet(mode: mode)
+        }
         .confirmationDialog("Выйти из аккаунта?", isPresented: $confirmLogout) {
             Button("Выйти", role: .destructive) { Task { await auth.logout() } }
         }

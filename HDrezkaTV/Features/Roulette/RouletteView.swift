@@ -20,13 +20,19 @@ struct RouletteView: View {
             VStack(spacing: 40) {
                 filters
                     .focusSection()
-                RouletteReel(model: model)
-                    .frame(height: 560)
-                    .overlay {
-                        if model.phase == .loading { LoadingPill() }
-                    }
-                controls
-                    .focusSection()
+                if model.isEmptyForAge, let limit = ParentalControl.shared.limit {
+                    emptyForAge(limit)
+                        .frame(height: 560)
+                        .focusSection()
+                } else {
+                    RouletteReel(model: model)
+                        .frame(height: 560)
+                        .overlay {
+                            if model.phase == .loading { LoadingPill() }
+                        }
+                    controls
+                        .focusSection()
+                }
                 if model.phase == .done, let pick = model.pick {
                     RouletteResult(model: pick)
                         .focusSection()
@@ -172,6 +178,33 @@ struct RouletteView: View {
             Label(model.minIMDb.map { String(localized: "IMDb от \($0.formatted())") } ?? String(localized: "Любой IMDb"), systemImage: "star")
                 .lineLimit(1)
         }
+    }
+
+    /// In kid mode, where nothing in the section and filters fits the age: says so in place of the reel,
+    /// and offers what usually does.
+    private func emptyForAge(_ limit: AgeLimit) -> some View {
+        VStack(spacing: 26) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 70))
+                .foregroundStyle(.secondary)
+            Text("Для возраста \(limit.title) крутить \(model.section.title.lowercased()) нельзя")
+                .font(.title3.weight(.semibold))
+                .multilineTextAlignment(.center)
+            Text("Детский режим не нашёл здесь ничего подходящего. Возраст меняется в Настройках.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 30) {
+                if model.section != .cartoons {
+                    Button("Крутить мультфильмы") { model.section = .cartoons }
+                }
+                if model.hasFilters {
+                    Button("Сбросить фильтры", action: model.resetFilters)
+                }
+            }
+            .padding(.top, 10)
+        }
+        .frame(maxWidth: 1100)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Controls
@@ -333,7 +366,10 @@ private struct RouletteResult: View {
     /// Same choice as the title page's main button: the next episode, or the film from where it stopped.
     @ViewBuilder
     private var watchButton: some View {
-        if model.details?.restriction != nil {
+        if !model.isAllowed {
+            Label("Недоступно в детском режиме", systemImage: "lock.fill")
+                .foregroundStyle(.secondary)
+        } else if model.details?.restriction != nil {
             Label("Недоступно в вашем регионе", systemImage: "globe")
                 .foregroundStyle(.secondary)
         } else if let details = model.details, details.upcomingStatus == nil {

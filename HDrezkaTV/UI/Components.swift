@@ -181,14 +181,24 @@ struct MediaRow: View {
     let items: [MediaItem]
     var actions: (MediaItem) -> [CardAction] = { _ in [] }
 
+    /// Without what kid mode hides.
+    private var visible: [MediaItem] { items.filter(ParentalControl.shared.allows) }
+
     var body: some View {
+        // A shelf kid mode empties goes away with its title.
+        if !visible.isEmpty {
+            shelf
+        }
+    }
+
+    private var shelf: some View {
         VStack(alignment: .leading, spacing: 24) {
             Text(title)
                 .font(.title3.bold())
                 .padding(.horizontal, 80)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 48) {
-                    ForEach(items) { item in
+                    ForEach(visible) { item in
                         PosterCard(item: item, actions: actions(item))
                     }
                 }
@@ -208,18 +218,40 @@ struct MediaGrid: View {
     /// After onReachEnd so a trailing closure keeps meaning onReachEnd.
     var actions: (MediaItem) -> [CardAction] = { _ in [] }
 
+    /// Without what kid mode hides.
+    private var visible: [MediaItem] { items.filter(ParentalControl.shared.allows) }
+
+    /// Pages loaded on its own while kid mode hid nearly everything.
+    @State private var extraPages = 0
+    private static let maxExtraPages = 6
+
     private let columns = Array(repeating: GridItem(.fixed(250), spacing: 48, alignment: .top), count: 6)
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 60) {
-            ForEach(items) { item in
-                PosterCard(item: item, actions: actions(item))
-                    .onAppear {
-                        if item.id == items.last?.id {
-                            Task { await onReachEnd() }
-                        }
+        Group {
+            if !items.isEmpty, visible.isEmpty, extraPages >= Self.maxExtraPages || ParentalControl.shared.limit == nil {
+                KidModeEmptyView()
+            } else {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 60) {
+                    ForEach(visible) { item in
+                        PosterCard(item: item, actions: actions(item))
+                            .onAppear {
+                                if item.id == visible.last?.id {
+                                    Task { await onReachEnd() }
+                                }
+                            }
                     }
+                }
             }
+        }
+        // With only a few cards let through, nothing would scroll to the end to load more: look a few
+        // pages further before saying there is nothing for this age.
+        .task(id: items.count) {
+            guard ParentalControl.shared.isOn, !items.isEmpty, visible.count < 12, extraPages < Self.maxExtraPages else { return }
+            extraPages += 1
+            await onReachEnd()
+            // The list ended: nothing more to wait for.
+            if !items.isEmpty, visible.isEmpty { extraPages = Self.maxExtraPages }
         }
     }
 }
