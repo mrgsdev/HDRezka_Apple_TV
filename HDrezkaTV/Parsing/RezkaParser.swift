@@ -88,7 +88,7 @@ enum RezkaParser {
                 path: item.hasClass("current") ? nil : href.flatMap { sitePath($0, base: base) }
             )
         }
-        let title = try doc.select(".b-post__franchise_link_title").first()?.text().nonEmpty ?? "Все части франшизы"
+        let title = try doc.select(".b-post__franchise_link_title").first()?.text().nonEmpty ?? String(localized: "Все части франшизы")
         return Franchise(title: title, parts: parts)
     }
 
@@ -103,7 +103,9 @@ enum RezkaParser {
                 let numbers = label.matches(of: /\d+/).map { String($0.output) }
                 return ScheduleEpisode(
                     id: try number.attr("data-id").nonEmpty ?? label,
-                    label: label.range(of: "сезон ").map { String(label[$0.upperBound...]) } ?? label,
+                    label: numbers.count == 2
+                        ? String(localized: "\(numbers[1]) серия")
+                        : label.range(of: "сезон ").map { String(label[$0.upperBound...]) } ?? label,
                     seasonNumber: numbers.count == 2 ? numbers[0] : nil,
                     episodeNumber: numbers.count == 2 ? numbers[1] : nil,
                     title: try names?.select("b").first()?.text() ?? "",
@@ -116,18 +118,76 @@ enum RezkaParser {
             guard !episodes.isEmpty else { return nil }
             // "Игры Биста - даты выхода серий 2 сезона" → "2 сезон", like the older blocks are titled.
             let title = try block.select(".b-post__schedule_block_title .title").first()?.text() ?? ""
-            let season = title.range(of: #"(\d+) сезона$"#, options: .regularExpression)
-                .map { title[$0].replacingOccurrences(of: "сезона", with: "сезон") } ?? title
+            let season = title.firstMatch(of: /(\d+) сезона?$/).map { String(localized: "\(String($0.1)) сезон") } ?? title
             return ScheduleSeason(title: season, episodes: episodes)
         }
     }
 
     /// Links in the details row "Из серии", which point to collections.
     private static func collectionLinks(in doc: Document) throws -> [Listing] {
-        let row = try doc.select(".b-post__info tr").array().first { try $0.select("td").first()?.text().hasPrefix("Из серии") == true }
-        return try row?.select("a").array().compactMap { link in
+        try infoRow("Из серии", in: doc)?.select("a").array().compactMap { link in
             try listingPath(link.attr("href")).map { Listing(title: try link.text(), path: $0) }
         } ?? []
+    }
+
+    /// The details row "Входит в списки": links to best-of lists, each followed by "(10 место)".
+    private static func rankings(in doc: Document) throws -> [RankedListing] {
+        try infoRow("Входит в списки", in: doc)?.select("a").array().compactMap { link in
+            guard let path = listingPath(try link.attr("href")) else { return nil }
+            let place = (link.nextSibling() as? TextNode)?.text().filter(\.isNumber)
+            // A ranked list has no "Последние"/"Популярные" of its own.
+            return RankedListing(listing: Listing(title: try link.text(), path: path, isSortable: false), place: place.flatMap { Int($0) })
+        } ?? []
+    }
+
+    /// The people in a details row, "Режиссер" or "В ролях актеры", each with a link and a small photo.
+    private static func people(_ title: String, in doc: Document, base: URL) throws -> [PersonLink] {
+        try infoRow(title, in: doc)?.select(".person-name-item").array().compactMap { item in
+            let link = try item.select("a").first()
+            let name = try (link ?? item).text()
+            guard !name.isEmpty else { return nil }
+            let path = try link.flatMap { listingPath(try $0.attr("href")) }
+            return PersonLink(
+                id: try item.attr("data-id").nonEmpty ?? path ?? name,
+                name: name,
+                path: path,
+                photoURL: absoluteURL(try item.attr("data-photo"), base: base)
+            )
+        } ?? []
+    }
+
+    /// A person's page: `.t1`/`.t2` names, a photo, the info table, and a `.b-person__career` block per role.
+    static func person(in doc: Document, base: URL) throws -> PersonDetails {
+        let cover = try doc.select(".b-post__infotable_left .b-sidecover").first()
+        let largePhoto = try cover?.select("a").first()?.attr("href")
+        let photo = try cover?.select("img").first()?.attr("src")
+        let info = try doc.select(".b-post__infotable_right_inner tr").array().compactMap { row -> InfoRow? in
+            let cells = try row.select("td").array()
+            guard cells.count == 2 else { return nil }
+            let title = try cells[0].text().trimmingCharacters(in: CharacterSet(charactersIn: ": "))
+            let value = try cells[1].text()
+            return title.isEmpty || value.isEmpty ? nil : InfoRow(title: title, value: value)
+        }
+        let careers = try doc.select(".b-person__career").array().compactMap { section -> PersonDetails.Career? in
+            let items = try items(in: section, base: base)
+            guard !items.isEmpty else { return nil }
+            return PersonDetails.Career(
+                title: try section.select("h2").first()?.text().nonEmpty ?? String(localized: "Фильмография"),
+                stats: try section.select(".b-person__career_stats").first()?.text().nonEmpty,
+                items: items
+            )
+        }
+        return PersonDetails(
+            name: try doc.select(".b-post__title .t1").first()?.text().nonEmpty ?? doc.select(".b-post__title").text(),
+            originalName: try doc.select(".b-post__title .t2").first()?.text().nonEmpty,
+            photoURL: absoluteURL(largePhoto?.hasImageExtension == true ? largePhoto : photo, base: base),
+            info: info,
+            careers: careers
+        )
+    }
+
+    private static func infoRow(_ title: String, in doc: Document) throws -> Element? {
+        try doc.select(".b-post__info tr").array().first { try $0.select("td").first()?.text().hasPrefix(title) == true }
     }
 
     /// `https://rezka.fi/films/drama/` or `/films/drama/` → `films/drama/`, the form `Listing.path` uses.
@@ -191,14 +251,9 @@ enum RezkaParser {
         let isSeries = seriesArgs != nil || hasEpisodeTabs
 
         var translators = try doc.select("#translators-list .b-translator__item").array().map { element in
-            var name = try element.attr("title").nonEmpty ?? element.text()
-            if let flag = try element.select("img").first()?.attr("title").nonEmpty ?? element.select("img").first()?.attr("alt").nonEmpty,
-               !name.localizedCaseInsensitiveContains(flag) {
-                name += " (\(flag))"
-            }
-            return Translator(
+            Translator(
                 id: try element.attr("data-translator_id"),
-                name: name,
+                name: try dubName(element.attr("title").nonEmpty ?? element.text(), flag: element.select("img").first()),
                 isCamrip: try element.attr("data-camrip").nonEmpty ?? "0",
                 isAds: try element.attr("data-ads").nonEmpty ?? "0",
                 isDirector: try element.attr("data-director").nonEmpty ?? "0",
@@ -210,7 +265,7 @@ enum RezkaParser {
             ?? (seriesArgs ?? movieArgs).flatMap { $0.count > 1 ? $0[1] : nil }
 
         if translators.isEmpty, let id = activeTranslatorId {
-            let name = info.first { $0.title.hasPrefix("В переводе") }?.value ?? "По умолчанию"
+            let name = info.first { $0.title.hasPrefix("В переводе") }?.value ?? String(localized: "По умолчанию")
             var single = Translator(id: id, name: name)
             if let args = movieArgs, args.count >= 5 {
                 single.isCamrip = args[2]
@@ -242,12 +297,73 @@ enum RezkaParser {
             bookmarkedIn: bookmarks?.checked ?? [],
             commentsCount: try Int(doc.select("#comments-list-button em").first()?.text() ?? "") ?? 0,
             collections: try collectionLinks(in: doc),
+            rankings: try rankings(in: doc),
+            directors: try people("Режиссер", in: doc, base: base),
+            cast: try people("В ролях", in: doc, base: base),
             franchise: try franchise(in: doc, base: base),
             schedule: try schedule(in: doc),
             // Nothing to play: no dub list and no player config, only the site's status and maybe a trailer.
             upcomingStatus: translators.isEmpty
-                ? try doc.select(".b-post__go_status").first()?.text().nonEmpty ?? "Ожидается"
-                : nil
+                ? try doc.select(".b-post__go_status").first()?.text().nonEmpty ?? String(localized: "Ожидается")
+                : nil,
+            restriction: try doc.select(".b-player__restricted__block_message").first()?.ownText()
+                .trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty,
+            siteRating: try siteRating(in: doc),
+            dubPopularity: try dubPopularity(in: doc),
+            hasTrailer: try !doc.select(".b-sidelinks__link.show-trailer").isEmpty()
+        )
+    }
+
+    /// A dub's name with its language when a flag marks it, e.g. "HDrezka Studio (Украинский)".
+    private static func dubName(_ text: String, flag: Element?) throws -> String {
+        var name = text.trimmingCharacters(in: .whitespaces)
+        if let language = try flag?.attr("title").nonEmpty ?? flag?.attr("alt").nonEmpty,
+           !name.localizedCaseInsensitiveContains(language) {
+            name += " (\(language))"
+        }
+        return name
+    }
+
+    /// "Не можешь выбрать озвучку?" next to the dub list: its tooltip is an HTML table of the dubs
+    /// with the share of viewers watching each.
+    private static func dubPopularity(in doc: Document) throws -> DubPopularity? {
+        guard let hint = try doc.select(".b-rgstats__help").first() else { return nil }
+        let table = try SwiftSoup.parseBodyFragment(try hint.attr("title"))
+        let entries = try table.select(".b-rgstats__list_item .inner").array().compactMap { row -> DubPopularity.Entry? in
+            guard let title = try row.select(".title").first(),
+                  let percent = Double(try row.select(".count").text()
+                    .filter { $0.isNumber || $0 == "," || $0 == "." }
+                    .replacingOccurrences(of: ",", with: "."))
+            else { return nil }
+            return DubPopularity.Entry(name: try dubName(title.text(), flag: title.select("img").first()), percent: percent)
+        }
+        guard !entries.isEmpty else { return nil }
+        return DubPopularity(
+            title: try table.select(".b-rgstats__title").first()?.text().nonEmpty ?? String(localized: "Популярность озвучек"),
+            entries: entries,
+            note: try table.select(".b-rgstats__info").first()?.text() ?? ""
+        )
+    }
+
+    /// "Никнейм" on the profile settings page: a label followed by a plain `div` with the name.
+    static func accountName(in doc: Document) throws -> String? {
+        for group in try doc.select(".b-profile_input-group").array()
+        where try group.select("label").first()?.text() == "Никнейм" {
+            // `select` would match the group itself, which is a `div` too.
+            return try group.children().array().first { $0.tagName() == "div" }?.text().nonEmpty
+        }
+        return nil
+    }
+
+    /// "Оцени фильм: ★★★★★ 8.62 (4836)" under the title. The 1–10 links are there only until the account votes.
+    private static func siteRating(in doc: Document) throws -> SiteRating? {
+        guard let block = try doc.select(".b-post__rating").first(),
+              let value = Double(try block.select(".num").first()?.text().replacingOccurrences(of: ",", with: ".") ?? "")
+        else { return nil }
+        return SiteRating(
+            value: value,
+            votes: Int(try block.select(".votes span").first()?.text().filter(\.isNumber) ?? "") ?? 0,
+            canVote: try !block.select(".b-post__rating_wrapper a[onclick*=rate]").isEmpty()
         )
     }
 
@@ -285,6 +401,8 @@ enum RezkaParser {
                 date: try item.select(".date").first()?.text().replacingOccurrences(of: "оставлен ", with: "") ?? "",
                 parts: try commentParts(text),
                 likes: Int(try like?.attr("data-likes_num") ?? "") ?? 0,
+                isLiked: like?.hasClass("disabled") ?? false,
+                canLike: like.map { !$0.hasClass("self-disabled") && !$0.hasClass("guest") } ?? false,
                 depth: Int(try item.attr("data-indent")) ?? 0
             )
         }
@@ -360,7 +478,9 @@ enum RezkaParser {
             let episodeId = try element.attr("data-episode_id")
             guard !seasonId.isEmpty, !episodeId.isEmpty else { continue }
             if episodesBySeason[seasonId] == nil { order.append(seasonId) }
-            let title = try element.text().nonEmpty ?? "Серия \(episodeId)"
+            // The site's usual "Серия 3" follows the interface language; a name of its own stays.
+            let text = try element.text()
+            let title = text.isEmpty || text == "Серия \(episodeId)" ? String(localized: "Серия \(episodeId)") : text
             episodesBySeason[seasonId, default: []].append(Episode(id: episodeId, seasonId: seasonId, title: title))
         }
 
@@ -376,7 +496,8 @@ enum RezkaParser {
 
         return seasonOrder.compactMap { id in
             guard let episodes = episodesBySeason[id], !episodes.isEmpty else { return nil }
-            return Season(id: id, title: titles[id] ?? "Сезон \(id)", episodes: episodes)
+            let title = titles[id].flatMap { $0 == "Сезон \(id)" ? nil : $0 } ?? String(localized: "Сезон \(id)")
+            return Season(id: id, title: title, episodes: episodes)
         }
     }
 
@@ -420,6 +541,59 @@ enum RezkaParser {
         guard let string = string?.nonEmpty else { return nil }
         if string.hasPrefix("//") { return URL(string: "https:" + string) }
         return URL(string: string, relativeTo: base)?.absoluteURL
+    }
+
+    /// The player in the trailer's iframe, YouTube's embed as a rule.
+    static func trailerURL(inCode code: String) -> URL? {
+        guard let src = code.firstMatch(of: /src="([^"]+)"/)?.1 else { return nil }
+        let address = String(src).replacingOccurrences(of: "&amp;", with: "&")
+        return URL(string: address.hasPrefix("//") ? "https:" + address : address)
+    }
+
+    /// `youtube.com/embed/ID?…` → `youtube.com/watch?v=ID`; any other player as it is.
+    static func watchPage(forPlayer player: URL) -> URL {
+        guard player.host()?.contains("youtube") == true, player.path().hasPrefix("/embed/"),
+              let page = URL(string: "https://www.youtube.com/watch?v=\(player.lastPathComponent)") else { return player }
+        return page
+    }
+
+    /// A title's hover card, `engine/ajax/quick_content.php`: title, the site's rating, the start of the
+    /// description, genres, director and cast, IMDb and Kinopoisk.
+    static func quickInfo(in html: String) throws -> QuickInfo {
+        let doc = try SwiftSoup.parseBodyFragment(html)
+        func score(_ element: Element?) throws -> QuickInfo.Score? {
+            guard let element, let value = try element.select("b").first()?.text().nonEmpty else { return nil }
+            let votes = try element.select("i").first()?.text() ?? element.ownText()
+            return QuickInfo.Score(value: value, votes: votes.trimmingCharacters(in: CharacterSet(charactersIn: "() ")))
+        }
+        func label(_ element: Element) throws -> String {
+            try element.select(".label").first()?.text().trimmingCharacters(in: CharacterSet(charactersIn: ": ")) ?? ""
+        }
+        let rating = try doc.select(".b-content__bubble_rating").first()
+        let texts = try doc.select(".b-content__bubble_text").array()
+        let labelled = try texts.filter { try !$0.select(".label").isEmpty() } + doc.select(".b-content__bubble_str").array()
+        let rows = try labelled.compactMap { element -> QuickInfo.Row? in
+            // People's names sit in itemprop spans; genres are plain links.
+            let names = try element.select("[itemprop=name]").array().map { try $0.text() }
+            let values = names.isEmpty ? try element.select("a").array().map { try $0.text() } : names
+            let title = try label(element)
+            return values.isEmpty || title.isEmpty ? nil : QuickInfo.Row(label: title, values: values)
+        }
+        return QuickInfo(
+            title: try doc.select(".b-content__bubble_title").first()?.text() ?? "",
+            ratingLabel: try rating.map(label)?.nonEmpty,
+            rating: try score(rating),
+            description: try texts.first { try $0.select(".label").isEmpty() }?.text() ?? "",
+            rows: rows,
+            imdb: try score(doc.select(".b-content__bubble_rates .imdb").first()),
+            kinopoisk: try score(doc.select(".b-content__bubble_rates .kp").first())
+        )
+    }
+
+    /// "IMDb: 7.8 (1 917) Кинопоиск: 8.1 (…)", as a title page's ratings read → 7.8.
+    static func imdbRating(in text: String) -> Double? {
+        guard let match = text.firstMatch(of: /IMDb:?\s*(\d+(?:[.,]\d+)?)/) else { return nil }
+        return Double(match.1.replacingOccurrences(of: ",", with: "."))
     }
 
     /// `/films/drama/12345-name-2020.html` → `12345`, the site's post id.

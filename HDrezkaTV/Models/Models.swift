@@ -1,22 +1,24 @@
 import Foundation
 
 enum MediaKind: String, Codable, Hashable {
-    case film, series, cartoon, anime, unknown
+    case film, series, cartoon, anime, show, unknown
 
     init(cssClasses: [String]) {
         if cssClasses.contains("films") { self = .film }
         else if cssClasses.contains("series") { self = .series }
         else if cssClasses.contains("cartoons") { self = .cartoon }
         else if cssClasses.contains("animation") { self = .anime }
+        else if cssClasses.contains("show") { self = .show }
         else { self = .unknown }
     }
 
     var title: String? {
         switch self {
-        case .film: "Фильм"
-        case .series: "Сериал"
-        case .cartoon: "Мультфильм"
-        case .anime: "Аниме"
+        case .film: String(localized: "Фильм")
+        case .series: String(localized: "Сериал")
+        case .cartoon: String(localized: "Мультфильм")
+        case .anime: String(localized: "Аниме")
+        case .show: String(localized: "Передача")
         case .unknown: nil
         }
     }
@@ -48,7 +50,12 @@ struct Listing: Identifiable, Hashable {
 
     var id: String { path }
 
-    static let announcements = Listing(title: "Анонсы", path: "announce/", isSortable: false)
+    static let announcements = Listing(title: String(localized: "Анонсы"), path: "announce/", isSortable: false)
+
+    /// A country's titles. The site takes a space in the name only as "+": with "%20" it answers 403.
+    static func country(_ name: String) -> Listing {
+        Listing(title: name, path: "country/\(name.replacingOccurrences(of: " ", with: "+"))/")
+    }
 }
 
 /// What the site's top menu offers inside a section.
@@ -120,7 +127,7 @@ struct Page<T> {
     let hasMore: Bool
 }
 
-struct Translator: Identifiable, Hashable {
+struct Translator: Identifiable, Hashable, Codable {
     let id: String
     let name: String
     var isCamrip = "0"
@@ -129,13 +136,13 @@ struct Translator: Identifiable, Hashable {
     var isPremium = false
 }
 
-struct Episode: Identifiable, Hashable {
+struct Episode: Identifiable, Hashable, Codable {
     let id: String
     let seasonId: String
     let title: String
 }
 
-struct Season: Identifiable, Hashable {
+struct Season: Identifiable, Hashable, Codable {
     let id: String
     let title: String
     let episodes: [Episode]
@@ -169,6 +176,11 @@ struct MediaDetails {
     let commentsCount: Int
     /// The collections in the "Из серии" row, e.g. "Сериалы Amazon".
     let collections: [Listing]
+    /// "Входит в списки": the site's best-of lists that rank the title.
+    let rankings: [RankedListing]
+    /// "Режиссер" and "В ролях актеры", with links to their pages.
+    let directors: [PersonLink]
+    let cast: [PersonLink]
     /// Other films and series of the same franchise, as the site lists them (newest first).
     let franchise: Franchise?
     /// Episode release dates by season, latest season first; empty for films.
@@ -176,10 +188,115 @@ struct MediaDetails {
     /// The site's note for a title that cannot be played yet, e.g. "Ожидаем фильм в хорошем качестве...";
     /// nil when it has something to watch.
     let upcomingStatus: String?
+    /// The site's note when the video is blocked where the viewer is, e.g. "К сожалению, это видео
+    /// не доступно в вашем регионе"; nil when it plays. The page still lists its seasons and dubs.
+    let restriction: String?
+    /// The viewers' rating on the site itself; nil when the page has none.
+    let siteRating: SiteRating?
+    /// "Не можешь выбрать озвучку?": which dubs viewers pick; nil when the page has no such hint.
+    let dubPopularity: DubPopularity?
+    /// The page offers «Смотреть трейлер».
+    let hasTrailer: Bool
 
     func info(_ title: String) -> String? {
         info.first { $0.title.hasPrefix(title) }?.value
     }
+
+    /// "США, Великобритания" → both, as the site names them.
+    var countries: [String]? {
+        info("Страна")?.components(separatedBy: ", ")
+    }
+
+    /// From "Год" or "Дата выхода": "12 ноября 2014 года" → 2014.
+    var year: Int? {
+        (info("Год") ?? info("Дата выхода"))?.firstMatch(of: /\d{4}/).flatMap { Int($0.output) }
+    }
+}
+
+/// What the site's hover card on a poster tells about a title: more than a list's card line, less than
+/// its page.
+struct QuickInfo {
+    struct Score {
+        let value: String
+        /// As the site writes it, e.g. "1 923".
+        let votes: String
+    }
+
+    /// A labelled line as the site has it: «Жанр», «Режиссер», «В ролях».
+    struct Row: Hashable {
+        let label: String
+        let values: [String]
+    }
+
+    let title: String
+    /// E.g. «Рейтинг фильма».
+    let ratingLabel: String?
+    let rating: Score?
+    let description: String
+    let rows: [Row]
+    let imdb: Score?
+    let kinopoisk: Score?
+}
+
+/// Someone in a title's cast or crew; `path` leads to their page, e.g. `person/3775-gari-oldman/`.
+struct PersonLink: Identifiable, Hashable {
+    let id: String
+    let name: String
+    /// nil for a name the site doesn't link to a page.
+    let path: String?
+    let photoURL: URL?
+}
+
+/// A person's page: the info table and their titles, a list per role ("Актер", "Режиссер"…).
+struct PersonDetails {
+    struct Career: Identifiable {
+        let title: String
+        /// "В базе 6 фильмов и 13 сериалов".
+        let stats: String?
+        let items: [MediaItem]
+
+        var id: String { title }
+    }
+
+    let name: String
+    let originalName: String?
+    let photoURL: URL?
+    /// "Карьера", "Дата рождения", "Место рождения", "Рост"…
+    let info: [InfoRow]
+    let careers: [Career]
+}
+
+/// A best-of list that ranks a title, e.g. "Лучшие сериалы триллеры 2022 года", 10th place.
+struct RankedListing: Identifiable, Hashable {
+    let listing: Listing
+    let place: Int?
+
+    var id: String { listing.id }
+}
+
+/// The share of the site's viewers watching a title in each dub, most popular first.
+struct DubPopularity: Hashable {
+    struct Entry: Hashable, Identifiable {
+        /// Named like `Translator.name`, flag included, so the two can be matched.
+        let name: String
+        let percent: Double
+
+        var id: String { name }
+    }
+
+    /// "Популярность озвучек для данного сериала".
+    let title: String
+    let entries: [Entry]
+    /// The site's footnote on how the numbers are made.
+    let note: String
+}
+
+/// The site's own rating of a title: the average of its viewers' votes from 1 to 10.
+struct SiteRating: Hashable {
+    let value: Double
+    let votes: Int
+    /// The page still offers its 1–10 links: this account has not voted for the title.
+    let canVote: Bool
 }
 
 struct StreamQuality: Identifiable, Hashable {
@@ -224,7 +341,11 @@ struct Comment: Identifiable, Hashable {
     let author: String
     let date: String
     let parts: [Part]
-    let likes: Int
+    var likes: Int
+    /// The account's own like, which the site lets it take back.
+    var isLiked: Bool
+    /// False on the account's own comments: the site doesn't let them be liked.
+    let canLike: Bool
     /// 0 for a comment on the title, 1 and more for replies.
     let depth: Int
 

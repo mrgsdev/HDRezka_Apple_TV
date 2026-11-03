@@ -44,6 +44,11 @@ final class WatchProgressStore {
         entries[Self.key(postId, seasonId, episodeId)]
     }
 
+    /// Every film and episode played to the end, as far back as positions are kept.
+    func finishedEntries() -> [Entry] {
+        entries.values.filter(\.isFinished)
+    }
+
     func update(_ entry: Entry, persistNow: Bool = false) {
         entries[Self.key(entry.postId, entry.seasonId, entry.episodeId)] = entry
         if persistNow || Date().timeIntervalSince(lastPersist) > 10 {

@@ -2,17 +2,20 @@ import Foundation
 import OSLog
 import SwiftSoup
 
+/// The site's sections. «Передачи и шоу» is last although the site lists it before anime: its menu
+/// entry is commented out there, and ⌘2–⌘5 keep their sections.
 enum CatalogSection: String, CaseIterable, Identifiable, Hashable {
-    case films, series, cartoons, animation
+    case films, series, cartoons, animation, show
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .films: "Фильмы"
-        case .series: "Сериалы"
-        case .cartoons: "Мультфильмы"
-        case .animation: "Аниме"
+        case .films: String(localized: "Фильмы")
+        case .series: String(localized: "Сериалы")
+        case .cartoons: String(localized: "Мультфильмы")
+        case .animation: String(localized: "Аниме")
+        case .show: String(localized: "Передачи и шоу")
         }
     }
 
@@ -22,6 +25,7 @@ enum CatalogSection: String, CaseIterable, Identifiable, Hashable {
         case .series: "tv"
         case .cartoons: "sparkles.tv"
         case .animation: "wand.and.stars"
+        case .show: "theatermasks"
         }
     }
 }
@@ -43,10 +47,10 @@ enum CatalogFilter: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .last: "Последние"
-        case .popular: "Популярные"
-        case .watching: "Сейчас смотрят"
-        case .soon: "В ожидании"
+        case .last: String(localized: "Последние")
+        case .popular: String(localized: "Популярные")
+        case .watching: String(localized: "Сейчас смотрят")
+        case .soon: String(localized: "В ожидании")
         }
     }
 }
@@ -141,9 +145,10 @@ final class RezkaClient {
     }
 
     /// The home page's "Новые фильмы, сериалы, мультфильмы и аниме" slider: recently added titles and episodes.
-    /// `id` 0 mixes all sections, like the slider before a section link is clicked.
-    func newest() async throws -> [MediaItem] {
-        let html = String(decoding: try await post("engine/ajax/get_newest_slider_content.php", form: ["id": "0"], timestamped: false), as: UTF8.self)
+    /// `section` 0 mixes all sections; 1, 2, 3 and 82 are films, series, cartoons and anime,
+    /// the ids behind the words of the slider's title.
+    func newest(section: Int = 0) async throws -> [MediaItem] {
+        let html = String(decoding: try await post("engine/ajax/get_newest_slider_content.php", form: ["id": String(section)], timestamped: false), as: UTF8.self)
         if html.contains("loginForm") { throw RezkaError.loginRequired }
         return try RezkaParser.items(in: SwiftSoup.parseBodyFragment(html), base: baseURL)
     }
@@ -181,7 +186,7 @@ final class RezkaClient {
     func createBookmarkFolder(name: String) async throws -> BookmarkFolder {
         let json = try await favorites(["name": name, "action": "add_cat"], fallback: "Не удалось создать папку.")
         let id = (json["id"] as? Int).map(String.init) ?? (json["id"] as? String) ?? ""
-        guard !id.isEmpty, id != "0" else { throw RezkaError.parsing("id новой папки") }
+        guard !id.isEmpty, id != "0" else { throw RezkaError.parsing(String(localized: "id новой папки")) }
         return BookmarkFolder(id: id, name: (json["name"] as? String)?.nonEmpty ?? name, count: 0)
     }
 
@@ -209,7 +214,7 @@ final class RezkaClient {
     }
 
     @discardableResult
-    private func favorites(_ form: [String: String], fallback: String) async throws -> [String: Any] {
+    private func favorites(_ form: [String: String], fallback: String.LocalizationValue) async throws -> [String: Any] {
         let json = try await postJSON("ajax/favorites/", form: form, timestamped: false)
         guard json["success"] as? Bool == true else { throw siteError(json, fallback: fallback) }
         return json
@@ -237,7 +242,7 @@ final class RezkaClient {
         let data = try await perform(request)
         guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             if String(decoding: data, as: UTF8.self).contains("loginForm") { throw RezkaError.loginRequired }
-            throw RezkaError.parsing("отзывы")
+            throw RezkaError.parsing(String(localized: "отзывы"))
         }
         let comments = try RezkaParser.comments(in: SwiftSoup.parseBodyFragment(json["comments"] as? String ?? ""))
         let navigator = try SwiftSoup.parseBodyFragment(json["navigation"] as? String ?? "")
@@ -258,6 +263,24 @@ final class RezkaClient {
         return try RezkaParser.seasons(in: fragment)
     }
 
+    /// The trailer's player from «Смотреть трейлер»; nil when the site has none for the title.
+    func trailerURL(postId: String) async throws -> URL? {
+        let json = try await postJSON("engine/ajax/gettrailervideo.php", form: ["id": postId], timestamped: false)
+        guard json["success"] as? Bool == true, let code = json["code"] as? String else { return nil }
+        return RezkaParser.trailerURL(inCode: code)
+    }
+
+    /// The card the site shows on hovering a poster: what lists don't carry.
+    func quickInfo(postId: String) async throws -> QuickInfo {
+        let data = try await post("engine/ajax/quick_content.php", form: ["id": postId, "is_touch": "1"], timestamped: false)
+        return try RezkaParser.quickInfo(in: String(decoding: data, as: UTF8.self))
+    }
+
+    /// The IMDb rating from the hover card; nil when the title has none.
+    func imdbRating(postId: String) async throws -> Double? {
+        try await quickInfo(postId: postId).imdb.flatMap { Double($0.value.replacingOccurrences(of: ",", with: ".")) }
+    }
+
     func stream(postId: String, translator: Translator, seasonId: String?, episodeId: String?, favs: String) async throws -> StreamInfo {
         var form = ["id": postId, "translator_id": translator.id, "favs": favs]
         if let seasonId, let episodeId {
@@ -273,7 +296,7 @@ final class RezkaClient {
         let json = try await postJSON("ajax/get_cdn_series/", form: form)
         guard json["success"] as? Bool == true else { throw siteError(json, fallback: "Не удалось получить ссылку на видео.") }
         guard let encoded = json["url"] as? String, !encoded.isEmpty else { throw RezkaError.noStreams }
-        guard let decoded = StreamDecoder.decode(encoded) else { throw RezkaError.parsing("ссылка на видео") }
+        guard let decoded = StreamDecoder.decode(encoded) else { throw RezkaError.parsing(String(localized: "ссылка на видео")) }
 
         let qualities = StreamDecoder.qualities(from: decoded)
         guard !qualities.isEmpty else { throw RezkaError.noStreams }
@@ -306,6 +329,65 @@ final class RezkaClient {
             if json["message"] as? String == "need_auth" { throw RezkaError.loginRequired }
             throw siteError(json, fallback: "Не удалось изменить отметку «просмотрено».")
         }
+    }
+
+    /// A person's page with their titles by role; `path` as in `PersonLink`.
+    func person(path: String) async throws -> PersonDetails {
+        try RezkaParser.person(in: try await document(url(path)), base: baseURL)
+    }
+
+    /// The account's nickname, from the profile settings page.
+    func accountName() async throws -> String? {
+        try RezkaParser.accountName(in: try await document(url("settings/")))
+    }
+
+    /// Votes for a title from 1 to 10, as the stars on a details page do, and returns the new average.
+    /// The site takes one vote per account.
+    func rate(postId: String, value: Int) async throws -> SiteRating {
+        var request = URLRequest(url: url("engine/ajax/rating.php", query: [
+            URLQueryItem(name: "news_id", value: postId),
+            URLQueryItem(name: "go_rate", value: String(value)),
+            URLQueryItem(name: "skin", value: "hdrezka"),
+        ]))
+        // The vote is a GET, so keep it out of the cache and never resend it.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Referer")
+        let data = try await perform(request, retryingTimeout: false)
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            if String(decoding: data, as: UTF8.self).contains("loginForm") { throw RezkaError.loginRequired }
+            throw RezkaError.parsing(String(localized: "оценка"))
+        }
+        guard json["success"] as? Bool == true else {
+            throw siteError(json, fallback: "Сайт не принял оценку. Возможно, вы уже оценивали этот тайтл.")
+        }
+        // Numbers come back as strings or as numbers.
+        let field = { (key: String) in (json[key] as? NSNumber)?.stringValue ?? json[key] as? String ?? "" }
+        return SiteRating(
+            value: Double(field("num").replacingOccurrences(of: ",", with: ".")) ?? 0,
+            votes: Int(field("votes").filter(\.isNumber)) ?? 0,
+            canVote: false
+        )
+    }
+
+    /// Puts the account's like on a comment, or takes it back if it is there: the site toggles it.
+    /// Returns the new number of likes and whether the comment is liked now.
+    func toggleCommentLike(id: String) async throws -> (likes: Int, isLiked: Bool) {
+        var request = URLRequest(url: url("engine/ajax/comments_like.php", query: [URLQueryItem(name: "id", value: id)]))
+        // A GET that changes state, like the vote: never from the cache, never resent.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Referer")
+        let data = try await perform(request, retryingTimeout: false)
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            if String(decoding: data, as: UTF8.self).contains("loginForm") { throw RezkaError.loginRequired }
+            throw RezkaError.parsing(String(localized: "лайк"))
+        }
+        guard json["success"] as? Bool == true, let likes = (json["count"] as? NSNumber)?.intValue else {
+            throw siteError(json, fallback: "Сайт не принял лайк.")
+        }
+        // "plus" for a like put, "minus" for one taken back.
+        return (likes, json["type"] as? String != "minus")
     }
 
     /// Removes an entry from the site's "continue watching" list.
@@ -348,15 +430,15 @@ final class RezkaClient {
         return String(decoding: try await perform(request), as: UTF8.self)
     }
 
-    /// Sends the request through the concurrency gate, retrying a GET once after a timeout.
-    /// The site stalls bursts of parallel requests, so at most `gate.limit` run at a time.
-    private func perform(_ request: URLRequest) async throws -> Data {
+    /// Sends the request through the concurrency gate, retrying a GET once after a timeout unless
+    /// `retryingTimeout` is off. The site stalls bursts of parallel requests, so at most `gate.limit` run at a time.
+    private func perform(_ request: URLRequest, retryingTimeout: Bool = true) async throws -> Data {
         await gate.acquire()
         do {
             let data: Data
             do {
                 data = try await attempt(request)
-            } catch let error as URLError where (request.httpMethod ?? "GET") == "GET" && [.timedOut, .networkConnectionLost].contains(error.code) {
+            } catch let error as URLError where retryingTimeout && (request.httpMethod ?? "GET") == "GET" && [.timedOut, .networkConnectionLost].contains(error.code) {
                 data = try await attempt(request)
             }
             await gate.release()
@@ -419,7 +501,7 @@ final class RezkaClient {
         let data = try await post(path, form: form, timestamped: timestamped)
         guard let json = (try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)) as? [String: Any] else {
             if String(decoding: data, as: UTF8.self).contains("loginForm") { throw RezkaError.loginRequired }
-            throw RezkaError.parsing("JSON \(path)")
+            throw RezkaError.parsing(String(localized: "JSON \(path)"))
         }
         return json
     }
@@ -430,12 +512,13 @@ final class RezkaClient {
         guard (200..<400).contains(http.statusCode) else { throw RezkaError.badStatus(http.statusCode) }
     }
 
-    private func siteError(_ json: [String: Any], fallback: String) -> RezkaError {
+    /// The site's own message (Russian), or `fallback` in the interface language.
+    private func siteError(_ json: [String: Any], fallback: String.LocalizationValue) -> RezkaError {
         let message = (json["message"] as? String)?
             .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let message, message.localizedCaseInsensitiveContains("авториз") { return .loginRequired }
-        return .site(message?.nonEmpty ?? fallback)
+        return .site(message?.nonEmpty ?? String(localized: fallback))
     }
 
     private static func formEncode(_ form: [String: String]) -> String {
