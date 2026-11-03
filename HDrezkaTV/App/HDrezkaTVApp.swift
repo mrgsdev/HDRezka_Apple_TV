@@ -46,6 +46,9 @@ struct MainTabView: View {
             Tab(role: .search) {
                 NavigationStack { SearchView().mediaDestinations() }
             }
+            Tab("Что посмотреть?", systemImage: "dice") {
+                NavigationStack { RouletteView().mediaDestinations() }
+            }
             ForEach(CatalogSection.allCases) { section in
                 Tab(section.title, systemImage: section.systemImage) {
                     NavigationStack { CatalogView(section: section).mediaDestinations() }
