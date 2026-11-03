@@ -38,6 +38,9 @@ struct RootView: View {
 }
 
 struct MainTabView: View {
+    @AppStorage("onboardingSeen") private var onboardingSeen = false
+    @State private var showsTour = false
+
     var body: some View {
         TabView {
             Tab("Главная", systemImage: "house") {
@@ -68,5 +71,8 @@ struct MainTabView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)
+        // The tour, once after signing in; Settings opens it again.
+        .fullScreenCover(isPresented: $showsTour) { OnboardingView() }
+        .onAppear { if !onboardingSeen { showsTour = true } }
     }
 }

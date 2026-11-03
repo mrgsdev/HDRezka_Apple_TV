@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var confirmLogout = false
     @State private var showAbout = false
     @State private var parentalSheet: ParentalSheet.Mode?
+    @State private var showsTour = false
 
     static let mirrorHint = "Напишите на mirror@hdrezka.org, чтобы узнать актуальное зеркало, и введите его сюда."
 
@@ -64,6 +65,7 @@ struct SettingsView: View {
             ParentalSection(sheet: $parentalSheet)
 
             Section {
+                Button("Знакомство с REZKA") { showsTour = true }
                 Button("О приложении") { showAbout = true }
             }
         }
@@ -71,6 +73,7 @@ struct SettingsView: View {
         .fullScreenCover(item: $parentalSheet) { mode in
             ParentalSheet(mode: mode)
         }
+        .fullScreenCover(isPresented: $showsTour) { OnboardingView() }
         .confirmationDialog("Выйти из аккаунта?", isPresented: $confirmLogout) {
             Button("Выйти", role: .destructive) { Task { await auth.logout() } }
         }
