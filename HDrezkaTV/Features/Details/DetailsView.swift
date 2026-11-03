@@ -12,6 +12,8 @@ struct DetailsView: View {
     @State private var newFolderName = ""
     @State private var revealedSpoilers: Set<String> = []
     @State private var scheduleSeasonId: String?
+    @State private var isRatingShown = false
+    @State private var isPopularityShown = false
 
     init(item: MediaItem) {
         self.item = item
@@ -43,6 +45,21 @@ struct DetailsView: View {
                 try? await Task.sleep(for: .milliseconds(100))
                 isPlayFocused = true
             }
+        }
+        .sheet(isPresented: $isRatingShown) {
+            RatingSheet(title: model.details?.title ?? item.title) { score in
+                Task { await model.rate(score) }
+            }
+        }
+        .sheet(isPresented: $isPopularityShown) {
+            if let details = model.details, let popularity = details.dubPopularity {
+                DubPopularitySheet(popularity: popularity, translators: details.translators, current: model.translator) { translator in
+                    Task { await model.select(translator) }
+                }
+            }
+        }
+        .sheet(isPresented: Binding(get: { model.trailerPage != nil }, set: { if !$0 { model.trailerPage = nil } })) {
+            if let page = model.trailerPage { TrailerCodeView(page: page) }
         }
         .alert("Новая папка закладок", isPresented: $isCreatingFolder) {
             TextField("Название", text: $newFolderName)
@@ -98,11 +115,16 @@ struct DetailsView: View {
                                 .font(.callout)
                                 .foregroundStyle(.yellow)
                         }
+                        if let rating = model.siteRating {
+                            SiteRatingRow(rating: rating, myRating: model.myRating, isRating: model.isRating)
+                        }
                         actions(details)
-                            .padding(.vertical, 10)
+                            .padding(.top, 10)
+                            .focusSection()
+                        extras(details)
                             .focusSection()
                         if model.translator?.isPremium == true, !auth.isPremium {
-                            Label("Эта озвучка только для HDrezka Premium — без подписки покажут короткое превью. Выберите озвучку без короны.",
+                            Label("Эта озвучка только для HDrezka Premium. Без подписки покажут короткое превью, выберите озвучку без короны.",
                                   systemImage: "crown.fill")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
@@ -112,20 +134,25 @@ struct DetailsView: View {
                                 .font(.callout)
                                 .lineLimit(6)
                         }
-                        if let cast = details.info("В ролях") {
+                        if details.cast.isEmpty, let cast = details.info("В ролях") {
                             Text("В ролях: \(cast)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
-                        }
-                        if !details.collections.isEmpty {
-                            collections(details.collections)
                         }
                     }
                 }
                 .padding(.horizontal, 80)
                 // Full-width section so "up" from the episode row reaches the buttons beside the poster.
                 .focusSection()
+
+                if !details.directors.isEmpty || !details.cast.isEmpty {
+                    people(details)
+                }
+
+                if !details.rankings.isEmpty || !details.collections.isEmpty {
+                    lists(details)
+                }
 
                 if details.isSeries {
                     episodes(details)
@@ -153,7 +180,7 @@ struct DetailsView: View {
 
     /// True once the main play button exists (for series it waits for the episode list).
     private var isPlayReady: Bool {
-        guard let details = model.details, details.upcomingStatus == nil, model.isAllowed else { return false }
+        guard let details = model.details, details.upcomingStatus == nil, details.restriction == nil, model.isAllowed else { return false }
         return !details.isSeries || model.resumeEpisode(progress: progress) != nil
     }
 
@@ -171,21 +198,95 @@ struct DetailsView: View {
             .lineLimit(2)
     }
 
-    /// The "Из серии" row as buttons into those collections.
-    private func collections(_ listings: [Listing]) -> some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 20) {
-                ForEach(listings) { listing in
-                    NavigationLink(value: listing) {
-                        Label(listing.title, systemImage: "square.stack")
+    /// Directors, then the cast, each opening their page with all their titles.
+    private func people(_ details: MediaDetails) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text("Режиссёр и актёры")
+                .font(.title3.bold())
+                .padding(.horizontal, 80)
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 40) {
+                    ForEach(details.directors) { PersonCard(person: $0, role: String(localized: "Режиссёр")) }
+                    ForEach(details.cast) { PersonCard(person: $0) }
+                }
+                .padding(.horizontal, 80)
+                .padding(.vertical, 20)
+            }
+            .scrollClipDisabled()
+        }
+        .focusSection()
+    }
+
+    /// The site's best-of lists with the title's place in them, and the "Из серии" collections.
+    private func lists(_ details: MediaDetails) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text("Входит в списки")
+                .font(.title3.bold())
+                .padding(.horizontal, 80)
+            ScrollView(.horizontal) {
+                HStack(spacing: 24) {
+                    ForEach(details.rankings) { ranked in
+                        NavigationLink(value: ranked.listing) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "trophy.fill")
+                                    .foregroundStyle(ranked.place.map { $0 <= 10 } == true ? Brand.gold : .secondary)
+                                Text(ranked.listing.title)
+                                if let place = ranked.place {
+                                    Text("\(place) место")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             .font(.caption)
+                        }
+                    }
+                    ForEach(details.collections) { listing in
+                        NavigationLink(value: listing) {
+                            Label(listing.title, systemImage: "square.stack")
+                                .font(.caption)
+                        }
+                    }
+                }
+                .padding(.horizontal, 80)
+                .padding(.vertical, 12)
+            }
+            .scrollClipDisabled()
+        }
+        .focusSection()
+    }
+
+    /// The trailer, a vote on the site and the dubs viewers pick: a row of their own under the main
+    /// buttons, which already fill the width beside the poster.
+    @ViewBuilder
+    private func extras(_ details: MediaDetails) -> some View {
+        let canRate = model.isAllowed && (model.siteRating.map { $0.canVote && model.myRating == nil } ?? false)
+        let hasTrailer = details.hasTrailer && model.isAllowed
+        let hasPopularity = details.translators.count > 1 && details.dubPopularity != nil
+        if canRate || hasTrailer || hasPopularity {
+            HStack(spacing: 30) {
+                if hasTrailer {
+                    Button {
+                        Task { await model.openTrailer() }
+                    } label: {
+                        Label("Трейлер", systemImage: "play.rectangle")
+                    }
+                    .disabled(model.isOpeningTrailer)
+                }
+                if canRate {
+                    Button {
+                        isRatingShown = true
+                    } label: {
+                        Label("Оценить", systemImage: "star")
+                    }
+                }
+                if hasPopularity {
+                    Button {
+                        isPopularityShown = true
+                    } label: {
+                        Label("Какую озвучку выбирают", systemImage: "chart.bar.xaxis")
                     }
                 }
             }
-            .padding(.vertical, 12)
         }
-        .scrollClipDisabled()
-        .focusSection()
     }
 
     // MARK: Actions
@@ -195,6 +296,13 @@ struct DetailsView: View {
         HStack(spacing: 30) {
             if !model.isAllowed {
                 Label("Недоступно в детском режиме", systemImage: "lock.fill")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 30)
+                    .padding(.vertical, 16)
+                    .background(Brand.panel, in: Capsule())
+            } else if details.restriction != nil {
+                Label("Недоступно в вашем регионе", systemImage: "globe")
                     .font(.headline)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 30)
@@ -241,19 +349,17 @@ struct DetailsView: View {
 
             if details.translators.count > 1 {
                 Menu {
-                    ForEach(details.translators) { translator in
-                        Button {
-                            Task { await model.select(translator) }
-                        } label: {
-                            let title = translator.isPremium ? "\(translator.name) · Premium" : translator.name
-                            if translator == model.translator {
-                                Label(title, systemImage: "checkmark")
-                            } else if translator.isPremium {
-                                Label(title, systemImage: "crown.fill")
-                            } else {
-                                Text(title)
-                            }
+                    // Grouped by the season on screen once some dubs lack it.
+                    if let groups = model.translatorsBySelectedSeason {
+                        let number = groups.season.id
+                        Section("Есть сезон \(number)") {
+                            ForEach(groups.with) { translatorButton($0) }
                         }
+                        Section("Нет сезона \(number)") {
+                            ForEach(groups.without) { translatorButton($0) }
+                        }
+                    } else {
+                        ForEach(details.translators) { translatorButton($0) }
                     }
                 } label: {
                     Label(model.translator?.name ?? "Озвучка", systemImage: model.translator?.isPremium == true ? "crown.fill" : "waveform")
@@ -267,6 +373,24 @@ struct DetailsView: View {
 
             if let folders = model.bookmarkFolders {
                 bookmarkMenu(folders)
+            }
+        }
+    }
+
+    /// A dub in the menu: its name, Premium, and its seasons once the dubs are known to differ.
+    private func translatorButton(_ translator: Translator) -> some View {
+        Button {
+            Task { await model.select(translator) }
+        } label: {
+            let title = [translator.name, translator.isPremium ? "Premium" : nil, model.seasonsHint(for: translator)]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+            if translator == model.translator {
+                Label(title, systemImage: "checkmark")
+            } else if translator.isPremium {
+                Label(title, systemImage: "crown.fill")
+            } else {
+                Text(title)
             }
         }
     }
@@ -379,7 +503,8 @@ struct DetailsView: View {
             // Not lazy: below the fold a lazy stack has no cards yet, so focus could not move down into it.
             VStack(alignment: .leading, spacing: 28) {
                 ForEach(model.comments) { comment in
-                    CommentCard(comment: comment, isRevealed: revealedSpoilers.contains(comment.id)) {
+                    CommentCard(comment: comment, isRevealed: revealedSpoilers.contains(comment.id), isLiking: model.likingComments.contains(comment.id),
+                                like: { Task { await model.toggleLike(comment) } }) {
                         guard comment.hasSpoiler else { return }
                         if revealedSpoilers.contains(comment.id) {
                             revealedSpoilers.remove(comment.id)
@@ -571,6 +696,9 @@ private struct FranchiseCard: View {
 private struct CommentCard: View {
     let comment: Comment
     let isRevealed: Bool
+    let isLiking: Bool
+    /// The site's "Поддерживаю!", from the menu a long press opens; again takes the like back.
+    let like: () -> Void
     let action: () -> Void
 
     var body: some View {
@@ -584,10 +712,12 @@ private struct CommentCard: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    if comment.likes > 0 {
-                        Label("\(comment.likes)", systemImage: "hand.thumbsup.fill")
+                    if isLiking {
+                        ProgressView()
+                    } else if comment.likes > 0 || comment.isLiked {
+                        Label("\(comment.likes)", systemImage: comment.isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(comment.isLiked ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
                     }
                 }
                 Text(text)
@@ -604,6 +734,13 @@ private struct CommentCard: View {
             .background(Color.white.opacity(0.06))
         }
         .buttonStyle(.card)
+        .contextMenu {
+            if comment.canLike {
+                Button(action: like) {
+                    Label(comment.isLiked ? "Убрать лайк" : "Поддерживаю!", systemImage: comment.isLiked ? "hand.thumbsup.slash" : "hand.thumbsup")
+                }
+            }
+        }
         // Long lines are hard to read across a TV; replies step in under their parent.
         .frame(maxWidth: 1400, alignment: .leading)
         .padding(.leading, CGFloat(min(comment.depth, 4)) * 60)

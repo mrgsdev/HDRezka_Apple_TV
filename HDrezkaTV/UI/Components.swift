@@ -310,6 +310,7 @@ extension View {
     func mediaDestinations() -> some View {
         navigationDestination(for: MediaItem.self) { DetailsView(item: $0) }
             .navigationDestination(for: Listing.self) { ListingView(listing: $0) }
+            .navigationDestination(for: PersonLink.self) { PersonView(person: $0) }
     }
 }
 

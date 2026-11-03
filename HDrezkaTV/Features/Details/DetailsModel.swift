@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Observation
 
 @MainActor
@@ -15,12 +16,14 @@ final class DetailsModel {
     private(set) var translator: Translator?
     private(set) var seasons: [Season] = []
     var selectedSeasonId: String?
+    /// Every dub's seasons by translator id, filled in the background for the dub menu.
+    private(set) var seasonsByTranslator: [String: [Season]] = [:]
     private(set) var isLoadingEpisodes = false
     private(set) var episodesError: Error?
     /// The account's bookmark folders; nil hides the bookmark button (logged out).
     private(set) var bookmarkFolders: [BookmarkFolder]?
     private(set) var bookmarkedIn: Set<String> = []
-    /// Shown in a "Не получилось" alert: a failed bookmark or watched-mark change.
+    /// Shown in a "Не получилось" alert: a failed bookmark, watched-mark change, vote or like.
     var actionError: String?
     /// Schedule ids of the episodes marked "просмотрено" in the account.
     private(set) var watchedEpisodes: Set<String> = []
@@ -29,6 +32,16 @@ final class DetailsModel {
     private(set) var isLoadingComments = false
     private(set) var commentsError: Error?
     private var commentsPage = 0
+    /// Comments whose like is on its way to the site.
+    private(set) var likingComments: Set<String> = []
+    /// The site's rating of the title; changes once the account votes.
+    private(set) var siteRating: SiteRating?
+    /// The vote sent from this Apple TV, if any: after voting the site no longer says which one it was.
+    private(set) var myRating: Int?
+    private(set) var isRating = false
+    private(set) var isOpeningTrailer = false
+    /// The trailer's YouTube page, shown as a QR code for a phone when no app here plays it.
+    var trailerPage: URL?
 
     init(item: MediaItem) {
         self.item = item
@@ -50,6 +63,7 @@ final class DetailsModel {
         state = .loading
         do {
             let details = try await RezkaClient.shared.details(path: item.path)
+            AgeBook.remember(details, path: item.path)
             let last = WatchProgressStore.shared.last(postId: details.postId)
             // Without Premium, premium dubs play only a teaser, so default to a free one.
             let playable = AuthSession.shared.isPremium ? details.translators : details.translators.filter { !$0.isPremium }
@@ -61,11 +75,15 @@ final class DetailsModel {
             bookmarkFolders = details.bookmarkFolders
             bookmarkedIn = details.bookmarkedIn
             watchedEpisodes = Set(details.schedule.flatMap(\.episodes).filter(\.isWatched).map(\.id))
+            siteRating = details.siteRating
+            myRating = Self.myRatings[details.postId]
             state = .loaded(details)
-            AgeBook.remember(details, path: item.path)
             AchievementTracker.shared.noteDetails(details)
 
             if details.isSeries, let chosen {
+                if let active = details.activeTranslatorId, !details.seasons.isEmpty {
+                    seasonsByTranslator[active] = details.seasons
+                }
                 if chosen.id == details.activeTranslatorId, !details.seasons.isEmpty {
                     apply(details.seasons, postId: details.postId)
                 } else {
@@ -74,6 +92,7 @@ final class DetailsModel {
             }
             // After the episodes, so the play button is not kept waiting on the site.
             if details.commentsCount > 0 { await loadMoreComments() }
+            if details.isSeries, details.translators.count > 1 { await loadAllSeasons(details) }
         } catch where !error.isCancellation {
             state = .failed(error)
             AuthSession.shared.handle(error)
@@ -83,7 +102,13 @@ final class DetailsModel {
     func select(_ translator: Translator) async {
         guard let details, translator != self.translator else { return }
         self.translator = translator
-        if details.isSeries { await loadSeasons(details, translator) }
+        guard details.isSeries else { return }
+        if let seasons = seasonsByTranslator[translator.id] {
+            episodesError = nil
+            apply(seasons, postId: details.postId)
+        } else {
+            await loadSeasons(details, translator)
+        }
     }
 
     private func loadSeasons(_ details: MediaDetails, _ translator: Translator) async {
@@ -91,6 +116,7 @@ final class DetailsModel {
         episodesError = nil
         do {
             let seasons = try await RezkaClient.shared.seasons(postId: details.postId, translatorId: translator.id, favs: details.favs)
+            seasonsByTranslator[translator.id] = seasons
             guard translator == self.translator else { return }
             apply(seasons, postId: details.postId)
         } catch where !error.isCancellation {
@@ -104,6 +130,59 @@ final class DetailsModel {
         self.seasons = seasons
         let lastSeason = WatchProgressStore.shared.last(postId: postId)?.seasonId
         selectedSeasonId = seasons.first { $0.id == lastSeason }?.id ?? seasons.first?.id
+    }
+
+    /// One dub at a time, so the menu hint never holds up the player's requests.
+    /// A dub that fails stays unknown: it only loses its hint.
+    private func loadAllSeasons(_ details: MediaDetails) async {
+        for translator in details.translators where seasonsByTranslator[translator.id] == nil {
+            guard !Task.isCancelled else { return }
+            guard let seasons = try? await RezkaClient.shared.seasons(postId: details.postId, translatorId: translator.id, favs: details.favs)
+            else { continue }
+            seasonsByTranslator[translator.id] = seasons
+        }
+    }
+
+    // MARK: Dub menu
+
+    /// "сезоны 1–12, 15" once the dubs are known to differ; nil while they all look the same.
+    func seasonsHint(for translator: Translator) -> String? {
+        guard let seasons = seasonsByTranslator[translator.id],
+              Set(seasonsByTranslator.values.map { $0.map(\.id) }).count > 1
+        else { return nil }
+        return Self.seasonsLabel(seasons)
+    }
+
+    /// The dubs with and without the season on screen, once every dub's seasons are in
+    /// and some lack it; nil otherwise, for one flat list.
+    var translatorsBySelectedSeason: (season: Season, with: [Translator], without: [Translator])? {
+        guard let details, let season = selectedSeason,
+              details.translators.allSatisfy({ seasonsByTranslator[$0.id] != nil })
+        else { return nil }
+        let has = { (translator: Translator) in
+            self.seasonsByTranslator[translator.id]?.contains { $0.id == season.id } == true
+        }
+        let without = details.translators.filter { !has($0) }
+        return without.isEmpty ? nil : (season, details.translators.filter(has), without)
+    }
+
+    /// Runs of numbers collapsed: "сезоны 1–12, 15", or "сезон 5" for one.
+    private static func seasonsLabel(_ seasons: [Season]) -> String {
+        let numbers = seasons.compactMap { Int($0.id) }.sorted()
+        guard let first = numbers.first, numbers.count == seasons.count else { return String(localized: "сезонов: \(seasons.count)") }
+        if numbers.count == 1 { return String(localized: "сезон \(first)") }
+        var runs: [String] = []
+        var (start, end) = (first, first)
+        for number in numbers.dropFirst() {
+            if number == end + 1 {
+                end = number
+                continue
+            }
+            runs.append(start == end ? "\(start)" : "\(start)–\(end)")
+            (start, end) = (number, number)
+        }
+        runs.append(start == end ? "\(start)" : "\(start)–\(end)")
+        return String(localized: "сезоны \(runs.joined(separator: ", "))")
     }
 
     // MARK: Comments
@@ -124,6 +203,21 @@ final class DetailsModel {
             AuthSession.shared.handle(error)
         } catch {}
         isLoadingComments = false
+    }
+
+    /// Likes a comment or takes the like back, then shows the count the site returns.
+    func toggleLike(_ comment: Comment) async {
+        guard comment.canLike, !likingComments.contains(comment.id) else { return }
+        likingComments.insert(comment.id)
+        defer { likingComments.remove(comment.id) }
+        do {
+            let result = try await RezkaClient.shared.toggleCommentLike(id: comment.id)
+            guard let index = comments.firstIndex(where: { $0.id == comment.id }) else { return }
+            comments[index].likes = result.likes
+            comments[index].isLiked = result.isLiked
+        } catch {
+            report(error)
+        }
     }
 
     // MARK: Watched marks
@@ -180,6 +274,52 @@ final class DetailsModel {
         }
     }
 
+    // MARK: Trailer
+
+    /// Opens the trailer in the YouTube app, or shows its page as a QR code for a phone when the app is
+    /// not here. The site's player is YouTube's embed, which an app's own web view cannot play without
+    /// a sign-in, and Apple TV has no browser.
+    func openTrailer() async {
+        guard let details, !isOpeningTrailer else { return }
+        isOpeningTrailer = true
+        defer { isOpeningTrailer = false }
+        do {
+            guard let player = try await RezkaClient.shared.trailerURL(postId: details.postId) else {
+                actionError = String(localized: "У этого тайтла не нашлось трейлера.")
+                return
+            }
+            let page = RezkaParser.watchPage(forPlayer: player)
+            let id = URLComponents(url: page, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "v" }?.value
+            if let id, let app = URL(string: "youtube://watch/\(id)"), await UIApplication.shared.open(app) { return }
+            trailerPage = page
+        } catch {
+            report(error)
+        }
+    }
+
+    // MARK: Rating
+
+    /// Votes for the title from 1 to 10. The site takes one vote per account and never changes it.
+    func rate(_ value: Int) async {
+        guard let details, !isRating else { return }
+        isRating = true
+        defer { isRating = false }
+        do {
+            siteRating = try await RezkaClient.shared.rate(postId: details.postId, value: value)
+            myRating = value
+            Self.myRatings[details.postId] = value
+            AchievementTracker.shared.noteRated()
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Votes sent from this Apple TV by post id.
+    private static var myRatings: [String: Int] {
+        get { UserDefaults.standard.dictionary(forKey: "myRatings") as? [String: Int] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: "myRatings") }
+    }
+
     private func report(_ error: Error) {
         guard !error.isCancellation else { return }
         actionError = error.localizedDescription
@@ -202,6 +342,7 @@ final class DetailsModel {
         return (all[index], last)
     }
 
+    /// What the title is, for kid mode when the card did not say.
     var kind: MediaKind {
         item.kind == .unknown ? (details?.isSeries == true ? .series : .film) : item.kind
     }
@@ -214,6 +355,11 @@ final class DetailsModel {
         guard let details, let translator else { return }
         guard isAllowed else {
             actionError = String(localized: "Этот тайтл недоступен в детском режиме.")
+            return
+        }
+        // The site gives no video for it here; the player would only say there is none for the dub.
+        guard details.restriction == nil else {
+            actionError = String(localized: "Это видео недоступно в вашем регионе.")
             return
         }
         PlayerPresenter.present(PlaybackRequest(
