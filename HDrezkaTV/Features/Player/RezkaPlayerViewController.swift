@@ -44,6 +44,9 @@ final class RezkaPlayerViewController: AVPlayerViewController {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
+    private var loadedObservation: NSKeyValueObservation?
+    /// How much of the video has loaded, for the line under the title; nil until known.
+    private var loadedPercent: Int?
     private var loadTask: Task<Void, Never>?
     private var subtitleTask: Task<Void, Never>?
     private var remoteSaveTask: Task<Void, Never>?
@@ -85,6 +88,7 @@ final class RezkaPlayerViewController: AVPlayerViewController {
 
     private func load(startAt: Double?) {
         loadTask?.cancel()
+        loadedPercent = nil
         spinner.startAnimating()
         cues = []
         subtitleLabel.attributedText = nil
@@ -134,6 +138,9 @@ final class RezkaPlayerViewController: AVPlayerViewController {
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             DispatchQueue.main.async { self?.statusChanged(item) }
         }
+        loadedObservation = item.observe(\.loadedTimeRanges, options: [.new]) { [weak self] item, _ in
+            DispatchQueue.main.async { self?.updateLoaded(item) }
+        }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.itemDidFinish() }
@@ -159,6 +166,22 @@ final class RezkaPlayerViewController: AVPlayerViewController {
         default:
             break
         }
+    }
+
+    /// How much of the video has loaded, shown under the title until all of it has, so it is clear how
+    /// far a quick rewind can go.
+    private func updateLoaded(_ item: AVPlayerItem) {
+        let duration = currentDuration
+        guard item === player?.currentItem, duration > 0 else { return }
+        let seconds = item.loadedTimeRanges.map(\.timeRangeValue.duration.seconds)
+            .filter { $0.isFinite && $0 > 0 }
+            .reduce(0, +)
+        // The last fraction of a second is often never reported as loaded.
+        let percent = seconds >= duration - 1 ? 100 : min(Int(seconds / duration * 100), 99)
+        guard percent != loadedPercent else { return }
+        loadedPercent = percent
+        item.externalMetadata = item.externalMetadata.filter { $0.identifier != .iTunesMetadataTrackSubTitle }
+            + [metadataItem(.iTunesMetadataTrackSubTitle, subtitleLine as NSString)]
     }
 
     private func itemDidFinish() {
@@ -391,8 +414,20 @@ final class RezkaPlayerViewController: AVPlayerViewController {
 
     private func metadata() -> [AVMetadataItem] {
         var items = [metadataItem(.commonIdentifierTitle, request.title as NSString)]
-        items.append(metadataItem(.iTunesMetadataTrackSubTitle, (episodeLabel ?? request.translator.name) as NSString))
+        items.append(metadataItem(.iTunesMetadataTrackSubTitle, subtitleLine as NSString))
         return items
+    }
+
+    /// The episode and dub, then how much has loaded until all of it has.
+    private var subtitleLine: String {
+        [episodeLabel ?? request.translator.name, loadedLine].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private var loadedLine: String? {
+        guard let loadedPercent, loadedPercent < 100 else { return nil }
+        let share = (Double(loadedPercent) / 100).formatted(.percent)
+        if request.episodeId != nil { return String(localized: "Серия загружена на \(share)") }
+        return String(localized: "Фильм загружен на \(share)")
     }
 
     private func metadataItem(_ identifier: AVMetadataIdentifier, _ value: NSCopying & NSObjectProtocol) -> AVMetadataItem {
