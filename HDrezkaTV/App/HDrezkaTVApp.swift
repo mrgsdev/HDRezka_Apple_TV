@@ -18,6 +18,7 @@ struct HDrezkaTVApp: App {
             if phase != .active {
                 CookieVault.save()
                 WatchProgressStore.shared.persist()
+                WatchStats.shared.persist()
             }
         }
     }
@@ -29,6 +30,7 @@ struct RootView: View {
     var body: some View {
         if auth.isLoggedIn {
             MainTabView()
+                .task { AchievementTracker.shared.start() }
         } else {
             LoginView()
         }

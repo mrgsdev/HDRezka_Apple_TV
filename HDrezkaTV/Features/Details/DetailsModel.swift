@@ -62,6 +62,7 @@ final class DetailsModel {
             bookmarkedIn = details.bookmarkedIn
             watchedEpisodes = Set(details.schedule.flatMap(\.episodes).filter(\.isWatched).map(\.id))
             state = .loaded(details)
+            AchievementTracker.shared.noteDetails(details)
 
             if details.isSeries, let chosen {
                 if chosen.id == details.activeTranslatorId, !details.seasons.isEmpty {
@@ -211,7 +212,12 @@ final class DetailsModel {
             seasons: seasons,
             seasonId: episode?.seasonId,
             episodeId: episode?.id,
-            startPosition: position
+            startPosition: position,
+            genres: details.info("Жанр")?.components(separatedBy: ", "),
+            kind: item.kind == .unknown ? (details.isSeries ? .series : .film) : item.kind,
+            path: details.path,
+            countries: details.countries,
+            year: details.year
         ))
     }
 }

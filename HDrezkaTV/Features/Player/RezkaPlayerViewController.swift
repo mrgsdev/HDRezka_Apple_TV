@@ -13,6 +13,12 @@ struct PlaybackRequest {
     var episodeId: String?
     /// nil resumes from the saved position, 0 starts over.
     var startPosition: Double?
+    /// For «Итоги»: what the title is, where it is from and when it came out.
+    var genres: [String]?
+    var kind: MediaKind?
+    var path: String?
+    var countries: [String]?
+    var year: Int?
 }
 
 enum PlayerPresenter {
@@ -56,6 +62,9 @@ final class RezkaPlayerViewController: AVPlayerViewController {
     private var lastLocalSave = Date.distantPast
     private var lastRemoteSave = Date()
     private var isTornDown = false
+    /// For «Итоги»: where the last tick was, and whether this episode has counted as watched to the end.
+    private var lastTickTime: Double?
+    private var finishNoted = false
 
     init(request: PlaybackRequest) {
         self.request = request
@@ -77,6 +86,7 @@ final class RezkaPlayerViewController: AVPlayerViewController {
             MainActor.assumeIsolated { self?.tick(time.seconds) }
         }
         load(startAt: request.startPosition)
+        AchievementTracker.shared.noteStart()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -88,6 +98,8 @@ final class RezkaPlayerViewController: AVPlayerViewController {
 
     private func load(startAt: Double?) {
         loadTask?.cancel()
+        finishNoted = false
+        lastTickTime = nil
         loadedPercent = nil
         spinner.startAnimating()
         cues = []
@@ -339,6 +351,25 @@ final class RezkaPlayerViewController: AVPlayerViewController {
     private func tick(_ time: Double) {
         if !cues.isEmpty { showSubtitle(WebVTT.text(at: time, in: cues)) }
         if Date().timeIntervalSince(lastLocalSave) > 5 { recordProgress() }
+        countWatched(upTo: time)
+    }
+
+    /// Adds the video that played since the last tick to «Итоги»; a jump or a pause adds nothing.
+    private func countWatched(upTo time: Double) {
+        defer { lastTickTime = time }
+        guard let player, let last = lastTickTime, player.timeControlStatus == .playing, pendingSeek == nil, !isPreviewClip else { return }
+        let played = time - last
+        guard played > 0, played < 1.5 * Double(max(player.rate, 1)) else { return }
+        let known = WatchStats.shared.titles[request.postId]
+        WatchStats.shared.add(played, postId: request.postId, title: WatchStats.Title(
+            name: request.title,
+            kind: request.kind ?? .unknown,
+            genres: request.genres ?? known?.genres ?? [],
+            posterURL: request.posterURL,
+            path: request.path ?? known?.path,
+            countries: request.countries ?? known?.countries,
+            year: request.year ?? known?.year
+        ), dub: request.translator.name)
     }
 
     private func savedPosition() -> Double {
@@ -368,6 +399,12 @@ final class RezkaPlayerViewController: AVPlayerViewController {
             duration: duration,
             updatedAt: Date()
         ), persistNow: force)
+        // As far as «finished» goes for saved positions: the credits need not run out.
+        if position >= duration * 0.92, !finishNoted {
+            finishNoted = true
+            AchievementTracker.shared.noteFinished(request)
+        }
+        AchievementTracker.shared.noteWatching()
 
         if force || Date().timeIntervalSince(lastRemoteSave) > 60 {
             lastRemoteSave = Date()
@@ -427,7 +464,11 @@ final class RezkaPlayerViewController: AVPlayerViewController {
         guard let loadedPercent, loadedPercent < 100 else { return nil }
         let share = (Double(loadedPercent) / 100).formatted(.percent)
         if request.episodeId != nil { return String(localized: "Серия загружена на \(share)") }
-        return String(localized: "Фильм загружен на \(share)")
+        return switch request.kind {
+        case .cartoon: String(localized: "Мультфильм загружен на \(share)")
+        case .anime: String(localized: "Аниме загружено на \(share)")
+        default: String(localized: "Фильм загружен на \(share)")
+        }
     }
 
     private func metadataItem(_ identifier: AVMetadataIdentifier, _ value: NSCopying & NSObjectProtocol) -> AVMetadataItem {
